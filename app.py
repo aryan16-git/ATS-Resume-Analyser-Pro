@@ -17,7 +17,6 @@ import time
 from groq import Groq
 
 import PyPDF2
-import pypdf
 import pdfplumber
 import fitz 
 
