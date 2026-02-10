@@ -36,10 +36,84 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add after imports, before CSS
+def detect_dark_mode():
+    """Detect if user is in dark mode"""
+    # This is a simple detection - for more advanced, use JavaScript
+    try:
+        # Check for dark mode class or attribute
+        return False  # Default to light
+    except:
+        return False
+
 # ============ CUSTOM CSS ============
 st.markdown("""
 <style>
-/* Main styles */
+/* ========== BULLETPROOF DARK MODE FIX ========== */
+/* Nuclear option: Force everything in sidebar to be visible */
+section[data-testid="stSidebar"],
+section[data-testid="stSidebar"] *,
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] h4,
+section[data-testid="stSidebar"] h5,
+section[data-testid="stSidebar"] h6,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] div,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] small,
+section[data-testid="stSidebar"] strong,
+section[data-testid="stSidebar"] em {
+    color: #ffffff !important;
+}
+
+/* Background for sidebar */
+section[data-testid="stSidebar"] {
+    background-color: #1a1a1a !important;
+}
+
+/* Input fields */
+section[data-testid="stSidebar"] .stTextInput > div > div > input,
+section[data-testid="stSidebar"] textarea,
+section[data-testid="stSidebar"] select {
+    background-color: #2d2d2d !important;
+    color: #ffffff !important;
+    border: 1px solid #555 !important;
+}
+
+/* Buttons in sidebar */
+section[data-testid="stSidebar"] .stButton > button {
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    color: white !important;
+    border: none;
+}
+
+/* Select boxes */
+section[data-testid="stSidebar"] [data-baseweb="select"] {
+    background-color: #2d2d2d !important;
+    color: #ffffff !important;
+}
+
+/* Expanders */
+section[data-testid="stSidebar"] .streamlit-expanderHeader {
+    background-color: #2d2d2d !important;
+    color: #ffffff !important;
+}
+
+/* Metrics */
+section[data-testid="stSidebar"] .stMetric {
+    color: #ffffff !important;
+}
+
+/* Alerts */
+section[data-testid="stSidebar"] .stAlert {
+    background-color: #2d2d2d !important;
+    color: #ffffff !important;
+}
+
+/* ========== ORIGINAL STYLES (KEEP YOUR DESIGN) ========== */
 .main-header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     padding: 2.5rem;
@@ -50,7 +124,6 @@ st.markdown("""
     box-shadow: 0 10px 30px rgba(0,0,0,0.2);
 }
 
-/* Cards */
 .metric-card {
     background: white;
     padding: 1.5rem;
@@ -63,12 +136,10 @@ st.markdown("""
     transform: translateY(-5px);
 }
 
-/* Progress bars */
 .stProgress > div > div > div > div {
     background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
 }
 
-/* Buttons */
 .stButton > button {
     background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
     color: white;
@@ -83,7 +154,6 @@ st.markdown("""
     box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
 }
 
-/* Tabs */
 .stTabs [data-baseweb="tab-list"] {
     gap: 8px;
 }
@@ -93,25 +163,17 @@ st.markdown("""
     font-weight: bold;
 }
 
-/* Sidebar */
-[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #f8f9fa 0%, #e9ecef 100%);
-}
-
-/* Text areas */
 .stTextArea textarea {
     border-radius: 10px;
     border: 2px solid #e9ecef;
 }
 
-/* File uploader */
 [data-testid="stFileUploader"] {
     border: 2px dashed #667eea;
     border-radius: 10px;
     padding: 20px;
 }
 
-/* Success message */
 .stAlert {
     border-radius: 10px;
 }
@@ -554,9 +616,9 @@ def render_sidebar():
     with st.sidebar:
         # Logo/Header
         st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem;">
-            <h2>⚙️ Control Panel</h2>
-            <p style="color: #666;">Configure your analysis</p>
+        <div style="text-align: center; margin-bottom: 2rem; color: #ffffff !important;">
+            <h2 style="color: #ffffff !important;">⚙️ Control Panel</h2>
+            <p style="color: #b0b0b0 !important;">Configure your analysis</p>
         </div>
         """, unsafe_allow_html=True)
         
