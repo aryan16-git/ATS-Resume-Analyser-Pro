@@ -16,10 +16,6 @@ import time
 # Import Groq AI
 from groq import Groq
 
-# Import PDF processing
-import pdfplumber
-
-import PyPDF2
 
 # Import data visualization
 import plotly.graph_objects as go
