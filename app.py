@@ -18,7 +18,7 @@ from groq import Groq
 
 # Import PDF processing
 import pdfplumber
-import fitz  # PyMuPDF
+
 import PyPDF2
 
 # Import data visualization
