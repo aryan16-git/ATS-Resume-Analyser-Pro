@@ -16,6 +16,10 @@ import time
 # Import Groq AI
 from groq import Groq
 
+import PyPDF2
+import pypdf
+import pdfplumber
+import fitz 
 
 # Import data visualization
 import plotly.graph_objects as go
@@ -146,66 +150,79 @@ AVAILABLE_MODELS = {
 def extract_text_from_pdf(uploaded_file):
     """Extract text from PDF using multiple methods"""
     try:
-        # Save uploaded file to temp file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
-            tmp_file.write(uploaded_file.getvalue())
-            tmp_path = tmp_file.name
-        
         text = ""
         
-        # Method 1: Try pdfplumber (best for tables)
+        # Method 1: Try pdfplumber first (best for most PDFs)
         try:
-            with pdfplumber.open(tmp_path) as pdf:
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(uploaded_file.getvalue())) as pdf:
                 for page in pdf.pages:
                     page_text = page.extract_text()
                     if page_text:
                         text += page_text + "\n\n"
                 
-                # Extract tables
-                tables_found = []
-                for i, page in enumerate(pdf.pages):
-                    tables = page.extract_tables()
-                    for table in tables:
-                        if table:
-                            tables_found.append(f"Table on page {i+1}: {len(table)} rows")
-                
-                if tables_found:
-                    text += "\n\n[Detected " + str(len(tables_found)) + " tables in resume]\n"
-        except:
-            pass
+                # If we got good text, return it
+                if len(text.strip()) > 100:
+                    return text[:5000]
+        except ImportError:
+            st.warning("pdfplumber not installed. Trying other methods...")
+        except Exception as e:
+            st.warning(f"pdfplumber failed: {str(e)[:100]}")
         
-        # Method 2: Try PyMuPDF for better extraction
-        if len(text.strip()) < 100:  # If not enough text
-            try:
-                doc = fitz.open(tmp_path)
-                for page in doc:
-                    text += page.get_text()
-                doc.close()
-            except:
-                pass
+        # Method 2: Try PyPDF2
+        try:
+            uploaded_file.seek(0)  # Reset file pointer
+            import PyPDF2
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.getvalue()))
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n\n"
+            
+            if len(text.strip()) > 100:
+                return text[:5000]
+        except Exception as e:
+            st.warning(f"PyPDF2 failed: {str(e)[:100]}")
         
-        # Method 3: Try PyPDF2 as last resort
-        if len(text.strip()) < 100:
-            try:
-                uploaded_file.seek(0)
-                pdf_reader = PyPDF2.PdfReader(uploaded_file)
-                for page in pdf_reader.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n\n"
-            except:
-                pass
+        # Method 3: Try pypdf
+        try:
+            uploaded_file.seek(0)
+            import pypdf
+            pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
+            for page in pdf_reader.pages:
+                page_text = page.extract_text()
+                if page_text:
+                    text += page_text + "\n\n"
+            
+            if len(text.strip()) > 100:
+                return text[:5000]
+        except Exception as e:
+            st.warning(f"pypdf failed: {str(e)[:100]}")
         
-        # Clean up temp file
-        os.unlink(tmp_path)
+        # Method 4: Try PyMuPDF (fitz) as last resort
+        try:
+            uploaded_file.seek(0)
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
+            for page in doc:
+                text += page.get_text()
+            doc.close()
+            
+            if len(text.strip()) > 100:
+                return text[:5000]
+        except ImportError:
+            st.warning("PyMuPDF not installed")
+        except Exception as e:
+            st.warning(f"PyMuPDF failed: {str(e)[:100]}")
         
+        # If we get here, extraction failed
         if len(text.strip()) > 50:
-            return text[:5000]  # Limit to 5000 chars
+            return text[:5000]  # Return whatever we got
         else:
-            return "⚠️ Could not extract text. Please ensure PDF has selectable text (not scanned image)."
+            return "⚠️ Could not extract text. Please ensure: 1) PDF has selectable text (not scanned image) 2) PDF is not password protected 3) Try converting to text-based PDF."
             
     except Exception as e:
-        return f"Error extracting PDF: {str(e)}"
+        return f"Error extracting PDF: {str(e)[:200]}"
 
 def get_file_stats(uploaded_file):
     """Get statistics about the uploaded file"""
@@ -215,17 +232,30 @@ def get_file_stats(uploaded_file):
         'pages': 0
     }
     
-    try:
-        # Try to get page count
-        with pdfplumber.open(io.BytesIO(uploaded_file.getvalue())) as pdf:
-            stats['pages'] = len(pdf.pages)
-    except:
+    # Try multiple methods to get page count
+    methods_to_try = [
+        ('pdfplumber', lambda: len(pdfplumber.open(io.BytesIO(uploaded_file.getvalue())).pages)),
+        ('PyPDF2', lambda: len(PyPDF2.PdfReader(io.BytesIO(uploaded_file.getvalue())).pages)),
+        ('pypdf', lambda: len(pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue())).pages)),
+        ('fitz', lambda: len(fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")))
+    ]
+    
+    for lib_name, func in methods_to_try:
         try:
-            doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
-            stats['pages'] = len(doc)
-            doc.close()
+            # Dynamically import if not already imported
+            if lib_name == 'pdfplumber' and 'pdfplumber' not in globals():
+                import pdfplumber
+            elif lib_name == 'PyPDF2' and 'PyPDF2' not in globals():
+                import PyPDF2
+            elif lib_name == 'pypdf' and 'pypdf' not in globals():
+                import pypdf
+            elif lib_name == 'fitz' and 'fitz' not in globals():
+                import fitz
+            
+            stats['pages'] = func()
+            break  # Stop at first successful method
         except:
-            pass
+            continue
     
     return stats
 
