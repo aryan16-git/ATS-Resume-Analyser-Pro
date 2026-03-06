@@ -1322,14 +1322,42 @@ def main():
                         st.markdown("#### ❌ Missing Keywords")
                         for kw in keywords['missing'][:8]:
                             st.markdown(f"- **{kw}**")
-        
-        else:
-            st.info("📊 Dashboard available only for ATS Score analysis.")
+            else:
+                st.info("📊 Dashboard available only for ATS Score analysis. Run an ATS Score analysis first.")
 
     # ============ TAB 4: VISUALIZE ============
     with tab4:
         st.header("📈 Advanced Visualizations")
-        st.info("Visualization features coming soon!")
+        
+        if st.session_state.analysis_history:
+            scores = []
+            dates = []
+            
+            for analysis in st.session_state.analysis_history:
+                if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
+                    score = analysis['result'].get('overall_score', 0)
+                    scores.append(score)
+                    dates.append(analysis['timestamp'])
+            
+            if scores:
+                df = pd.DataFrame({'Date': dates, 'Score': scores})
+                fig = px.line(df, x='Date', y='Score', title='📈 Your ATS Score Progress', markers=True)
+                fig.update_layout(yaxis_range=[0, 100])
+                st.plotly_chart(fig, use_container_width=True)
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Average Score", f"{sum(scores)/len(scores):.1f}%")
+                with col2:
+                    st.metric("Best Score", f"{max(scores)}%")
+                with col3:
+                    st.metric("Lowest Score", f"{min(scores)}%")
+                with col4:
+                    st.metric("Total Analyses", len(scores))
+            else:
+                st.info("No ATS Score analyses found in history.")
+        else:
+            st.info("No analysis history yet. Run some analyses first!")
 
     # ============ TAB 5: HISTORY ============
     with tab5:
@@ -1337,25 +1365,29 @@ def main():
         
         if st.session_state.analysis_history:
             for idx, analysis in enumerate(reversed(st.session_state.analysis_history)):
-                with st.expander(f"Analysis #{len(st.session_state.analysis_history)-idx} - {analysis['timestamp']}"):
-                    st.write(f"**Type:** {analysis['type'].title()}")
-                    st.write(f"**File:** {analysis['filename']}")
+                with st.expander(f"Analysis #{len(st.session_state.analysis_history)-idx} - {analysis['timestamp']}", expanded=False):
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.write(f"**Type:** {analysis['type'].title()}")
+                        st.write(f"**File:** {analysis['filename']}")
+                        st.write(f"**Model:** {analysis['model']}")
+                    with col2:
+                        if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
+                            score = analysis['result'].get('overall_score', 0)
+                            st.metric("Score", f"{score}%")
                     
-                    if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                        score = analysis['result'].get('overall_score', 0)
-                        st.metric("Score", f"{score}%")
-                    
-                    if st.button("📋 Load", key=f"load_{idx}"):
+                    if st.button("📋 Load Analysis", key=f"load_{idx}"):
                         st.session_state.current_analysis = analysis
                         st.rerun()
         else:
-            st.info("No analysis history yet.")
+            st.info("No analysis history yet. Your first analysis will appear here!")
 
     # ============ FOOTER ============
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666; padding: 2rem;">
         <p>🚀 <strong>ATS Resume Analyzer PRO</strong> • Made with ❤️ using Streamlit & Groq AI</p>
+        <p style="font-size: 0.9rem;">Disclaimer: AI analysis is for guidance only. Always verify with human review.</p>
     </div>
     """, unsafe_allow_html=True)
 
