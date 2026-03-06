@@ -1316,14 +1316,22 @@ def main():
                         st.markdown("#### ✅ Matching Keywords")
                         for kw in keywords['matched'][:8]:
                             st.markdown(f"- **{kw}**")
+                    else:
+                        st.info("No matching keywords found")
                 
                 with col_kw2:
                     if keywords.get('missing'):
                         st.markdown("#### ❌ Missing Keywords")
                         for kw in keywords['missing'][:8]:
                             st.markdown(f"- **{kw}**")
+                    else:
+                        st.info("No missing keywords found")
+            
+            # This is the ONLY else statement needed
             else:
                 st.info("📊 Dashboard available only for ATS Score analysis. Run an ATS Score analysis first.")
+        
+        # End of the with tab3 block
 
     # ============ TAB 4: VISUALIZE ============
     with tab4:
