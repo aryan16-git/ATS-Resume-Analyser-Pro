@@ -1111,96 +1111,354 @@ def main():
                     if st.button("⭐ Save to History", use_container_width=True):
                         st.success("Saved to history!")
     
-    # TAB 3: DASHBOARD
-    with tab3:
-        st.header("📊 Analysis Dashboard")
+    # ============ TAB 3: DASHBOARD (COMPLETELY REWRITTEN) ============
+with tab3:
+    st.markdown("""
+    <style>
+    /* ========== DASHBOARD CUSTOM STYLES ========== */
+    .dashboard-metric {
+        background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        margin: 10px 0;
+        border: 1px solid #3d3d3d;
+    }
+    
+    .metric-title {
+        color: #b0b0b0 !important;
+        font-size: 0.9rem !important;
+        font-weight: 500 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 1px !important;
+        margin-bottom: 5px !important;
+    }
+    
+    .metric-value {
+        font-size: 3rem !important;
+        font-weight: 800 !important;
+        line-height: 1.2 !important;
+        margin: 5px 0 !important;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.3) !important;
+    }
+    
+    .metric-subtitle {
+        color: #808080 !important;
+        font-size: 0.8rem !important;
+        margin-top: 5px !important;
+    }
+    
+    /* Score colors */
+    .score-high { color: #00C853 !important; }
+    .score-medium { color: #FFD600 !important; }
+    .score-low { color: #FF3D00 !important; }
+    
+    /* Status colors */
+    .status-pass { color: #00C853 !important; }
+    .status-fail { color: #FF3D00 !important; }
+    
+    /* Chart container */
+    .chart-container {
+        background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+        padding: 20px;
+        border-radius: 15px;
+        border: 1px solid #3d3d3d;
+        margin: 10px 0;
+    }
+    
+    .chart-title {
+        color: #ffffff !important;
+        font-size: 1.2rem !important;
+        font-weight: 600 !important;
+        margin-bottom: 15px !important;
+        padding-bottom: 10px !important;
+        border-bottom: 2px solid #667eea !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    st.header("📊 Analysis Dashboard")
+    
+    if not st.session_state.current_analysis:
+        st.info("👈 Run an analysis first to see the dashboard!")
+    else:
+        analysis = st.session_state.current_analysis
         
-        if not st.session_state.current_analysis:
-            st.info("👈 Run an analysis first to see the dashboard!")
-        else:
-            analysis = st.session_state.current_analysis
+        if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
+            score_data = analysis['result']
             
-            if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                score_data = analysis['result']
+            # ========== TOP METRICS ROW ==========
+            st.markdown("### 🎯 Key Metrics")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            # Metric 1: Overall Score
+            with col1:
+                score = score_data.get('overall_score', 0)
+                if score >= 70:
+                    score_class = "score-high"
+                elif score >= 40:
+                    score_class = "score-medium"
+                else:
+                    score_class = "score-low"
                 
-                # Top metrics row
-                col1, col2, col3, col4 = st.columns(4)
+                st.markdown(f"""
+                <div class="dashboard-metric">
+                    <div class="metric-title">📊 Overall Score</div>
+                    <div class="metric-value {score_class}">{score}%</div>
+                    <div class="metric-subtitle">ATS Compatibility</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Metric 2: ATS Status
+            with col2:
+                prediction = score_data.get('prediction', {})
+                pass_ats = prediction.get('pass_ats', False)
+                status_class = "status-pass" if pass_ats else "status-fail"
+                status_text = "PASS ✅" if pass_ats else "FAIL ❌"
                 
-                with col1:
-                    st.metric("Overall Score", 
-                             f"{score_data.get('overall_score', 0)}%",
-                             "ATS Compatibility")
+                st.markdown(f"""
+                <div class="dashboard-metric">
+                    <div class="metric-title">🤖 ATS Status</div>
+                    <div class="metric-value {status_class}" style="font-size: 2.5rem;">{status_text}</div>
+                    <div class="metric-subtitle">Screening Result</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Metric 3: Interview Chance
+            with col3:
+                interview_chance = prediction.get('interview_probability', 'N/A')
+                if interview_chance == "High":
+                    chance_color = "score-high"
+                elif interview_chance == "Medium":
+                    chance_color = "score-medium"
+                else:
+                    chance_color = "score-low"
                 
-                with col2:
-                    prediction = score_data.get('prediction', {})
-                    status = "✅ PASS" if prediction.get('pass_ats') else "❌ FAIL"
-                    st.metric("ATS Status", status)
+                st.markdown(f"""
+                <div class="dashboard-metric">
+                    <div class="metric-title">🎯 Interview Chance</div>
+                    <div class="metric-value {chance_color}" style="font-size: 2.2rem;">{interview_chance}</div>
+                    <div class="metric-subtitle">Probability</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Metric 4: Shortlist Time
+            with col4:
+                shortlist_time = prediction.get('shortlist_time', 'N/A')
                 
-                with col3:
-                    st.metric("Interview Chance", 
-                             prediction.get('interview_probability', 'N/A'))
+                st.markdown(f"""
+                <div class="dashboard-metric">
+                    <div class="metric-title">⏱️ Shortlist Time</div>
+                    <div class="metric-value" style="color: #667eea; font-size: 2rem;">{shortlist_time}</div>
+                    <div class="metric-subtitle">Estimated Timeline</div>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # ========== VISUALIZATIONS ==========
+            col_viz1, col_viz2 = st.columns(2)
+            
+            with col_viz1:
+                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                st.markdown('<div class="chart-title">📈 ATS Compatibility Score</div>', unsafe_allow_html=True)
                 
-                with col4:
-                    st.metric("Shortlist Time", 
-                             prediction.get('shortlist_time', 'N/A'))
+                # Create enhanced gauge chart
+                fig = go.Figure(go.Indicator(
+                    mode="gauge+number",
+                    value=score,
+                    number={
+                        'font': {'size': 60, 'color': 'white', 'family': 'Arial Black'},
+                        'suffix': "%",
+                    },
+                    gauge={
+                        'axis': {
+                            'range': [0, 100],
+                            'tickwidth': 2,
+                            'tickcolor': "white",
+                            'tickfont': {'size': 12, 'color': 'white'}
+                        },
+                        'bar': {
+                            'color': '#00C853' if score >= 70 else '#FFD600' if score >= 40 else '#FF3D00',
+                            'thickness': 0.3
+                        },
+                        'bgcolor': '#2d2d2d',
+                        'borderwidth': 2,
+                        'bordercolor': '#667eea',
+                        'steps': [
+                            {'range': [0, 40], 'color': 'rgba(255, 61, 0, 0.2)'},
+                            {'range': [40, 70], 'color': 'rgba(255, 214, 0, 0.2)'},
+                            {'range': [70, 100], 'color': 'rgba(0, 200, 83, 0.2)'}
+                        ],
+                        'threshold': {
+                            'line': {'color': "white", 'width': 4},
+                            'thickness': 0.75,
+                            'value': score
+                        }
+                    }
+                ))
                 
-                st.markdown("---")
+                fig.update_layout(
+                    height=350,
+                    margin=dict(l=30, r=30, t=50, b=30),
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    font={'color': "white"}
+                )
                 
-                # Visualizations
-                col_viz1, col_viz2 = st.columns(2)
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with col_viz2:
+                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                st.markdown('<div class="chart-title">📊 Skills Breakdown</div>', unsafe_allow_html=True)
                 
-                with col_viz1:
-                    # Gauge chart
-                    st.plotly_chart(
-                        create_gauge_chart(
-                            score_data.get('overall_score', 0),
-                            "ATS Compatibility Score"
+                breakdown = score_data.get('breakdown', {})
+                if breakdown:
+                    # Create radar chart with better visibility
+                    categories = list(breakdown.keys())
+                    values = list(breakdown.values())
+                    
+                    fig = go.Figure()
+                    
+                    # Add filled area
+                    fig.add_trace(go.Scatterpolar(
+                        r=values + [values[0]],
+                        theta=[c.replace('_', ' ').title() for c in categories] + [categories[0].replace('_', ' ').title()],
+                        fill='toself',
+                        fillcolor='rgba(102, 126, 234, 0.3)',
+                        line=dict(color='#667eea', width=3),
+                        name='Score'
+                    ))
+                    
+                    # Add markers at each point
+                    fig.add_trace(go.Scatterpolar(
+                        r=values,
+                        theta=[c.replace('_', ' ').title() for c in categories],
+                        mode='markers+text',
+                        marker=dict(size=12, color='white', line=dict(color='#667eea', width=2)),
+                        text=[f"{v}%" for v in values],
+                        textposition="top center",
+                        textfont=dict(color='white', size=11, family='Arial Black'),
+                        showlegend=False
+                    ))
+                    
+                    fig.update_layout(
+                        polar=dict(
+                            radialaxis=dict(
+                                visible=True,
+                                range=[0, 100],
+                                tickfont=dict(color='white', size=10),
+                                gridcolor='rgba(255,255,255,0.2)',
+                                gridwidth=1,
+                            ),
+                            angularaxis=dict(
+                                tickfont=dict(color='white', size=11, family='Arial Black'),
+                                gridcolor='rgba(255,255,255,0.2)',
+                                linecolor='rgba(255,255,255,0.2)',
+                            ),
+                            bgcolor='rgba(0,0,0,0)'
                         ),
-                        use_container_width=True
+                        showlegend=False,
+                        height=350,
+                        margin=dict(l=80, r=80, t=30, b=30),
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        plot_bgcolor='rgba(0,0,0,0)'
                     )
+                    
+                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                 
-                with col_viz2:
-                    # Radar chart for breakdown
-                    breakdown = score_data.get('breakdown', {})
-                    if breakdown:
-                        st.plotly_chart(
-                            create_radar_chart(breakdown, "Skills Breakdown"),
-                            use_container_width=True
-                        )
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # ========== KEYWORD ANALYSIS ==========
+            st.markdown("---")
+            st.markdown("### 🔑 Keyword Analysis")
+            
+            keywords = score_data.get('keywords', {})
+            
+            col_kw1, col_kw2 = st.columns(2)
+            
+            with col_kw1:
+                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                st.markdown('<div class="chart-title">✅ Matching Keywords</div>', unsafe_allow_html=True)
                 
-                # Keywords visualization
-                st.subheader("🔤 Keyword Analysis")
+                if keywords.get('matched'):
+                    for kw in keywords['matched'][:8]:
+                        st.markdown(f"""
+                        <div style="background: #2d2d2d; padding: 8px 15px; border-radius: 20px; 
+                                    margin: 5px; display: inline-block; border: 1px solid #00C853;">
+                            <span style="color: #00C853; font-weight: bold;">✓</span>
+                            <span style="color: white; margin-left: 5px;">{kw}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No matching keywords found")
                 
-                keywords = score_data.get('keywords', {})
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            with col_kw2:
+                st.markdown('<div class="chart-container">', unsafe_allow_html=True)
+                st.markdown('<div class="chart-title">❌ Missing Keywords</div>', unsafe_allow_html=True)
                 
-                col_kw1, col_kw2 = st.columns(2)
+                if keywords.get('missing'):
+                    for kw in keywords['missing'][:8]:
+                        st.markdown(f"""
+                        <div style="background: #2d2d2d; padding: 8px 15px; border-radius: 20px; 
+                                    margin: 5px; display: inline-block; border: 1px solid #FF3D00;">
+                            <span style="color: #FF3D00; font-weight: bold;">✗</span>
+                            <span style="color: white; margin-left: 5px;">{kw}</span>
+                        </div>
+                        """, unsafe_allow_html=True)
+                else:
+                    st.info("No missing keywords found")
                 
-                with col_kw1:
-                    if keywords.get('matched'):
-                        st.plotly_chart(
-                            create_bar_chart(keywords['matched'], "✅ Matching Keywords"),
-                            use_container_width=True
-                        )
-                
-                with col_kw2:
-                    if keywords.get('missing'):
-                        st.plotly_chart(
-                            create_bar_chart(keywords['missing'], "❌ Missing Keywords", "#ff6b6b"),
-                            use_container_width=True
-                        )
-                
-                # Improvement timeline
-                st.subheader("📈 Improvement Roadmap")
-                
-                improvements = score_data.get('improvements', [])
-                
+                st.markdown('</div>', unsafe_allow_html=True)
+            
+            # ========== IMPROVEMENT ROADMAP ==========
+            st.markdown("---")
+            st.markdown("### 📈 Improvement Roadmap")
+            
+            improvements = score_data.get('improvements', [])
+            
+            if improvements:
                 for idx, imp in enumerate(improvements, 1):
-                    with st.expander(f"Step {idx}: {imp[:50]}..."):
-                        st.info(f"**Action:** {imp}")
-                        st.text_input(f"Your notes for Step {idx}", key=f"notes_{idx}")
-                
+                    with st.expander(f"**Step {idx}:** {imp[:50]}...", expanded=False):
+                        st.markdown(f"""
+                        <div style="background: #2d2d2d; padding: 15px; border-radius: 10px; border-left: 5px solid #667eea;">
+                            <p style="color: white; margin: 0;">{imp}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Add notes section
+                        notes_key = f"notes_{idx}_{datetime.now().timestamp()}"
+                        st.text_area("Your notes:", key=notes_key, placeholder="Add your action plan here...")
             else:
-                st.info("Dashboard available only for ATS Score analysis. Run an ATS Score analysis first.")
+                st.info("No improvement suggestions available")
+            
+            # ========== ATS OPTIMIZATION TIPS ==========
+            st.markdown("---")
+            st.markdown("### 🎯 ATS Optimization Tips")
+            
+            tips = score_data.get('ats_optimization_tips', [])
+            
+            if tips:
+                cols = st.columns(3)
+                for idx, tip in enumerate(tips[:3]):
+                    with cols[idx]:
+                        st.markdown(f"""
+                        <div style="background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
+                                    padding: 15px; border-radius: 10px; height: 100%;
+                                    border: 1px solid #3d3d3d;">
+                            <span style="color: #667eea; font-size: 1.5rem;">💡</span>
+                            <p style="color: white; margin-top: 10px;">{tip}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+            else:
+                st.info("No optimization tips available")
+        
+        else:
+            st.info("📊 Dashboard available only for ATS Score analysis. Run an ATS Score analysis first.")
     
     # TAB 4: VISUALIZE
     with tab4:
