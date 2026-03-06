@@ -1111,7 +1111,7 @@ def main():
                     if st.button("⭐ Save to History", use_container_width=True):
                         st.success("Saved to history!")
     
-        # ============ TAB 3: DASHBOARD (FIXED INDENTATION) ============
+    # ============ TAB 3: DASHBOARD ============
     with tab3:
         st.markdown("""
         <style>
@@ -1148,16 +1148,12 @@ def main():
             margin-top: 5px !important;
         }
         
-        /* Score colors */
         .score-high { color: #00C853 !important; }
         .score-medium { color: #FFD600 !important; }
         .score-low { color: #FF3D00 !important; }
-        
-        /* Status colors */
         .status-pass { color: #00C853 !important; }
         .status-fail { color: #FF3D00 !important; }
         
-        /* Chart container */
         .chart-container {
             background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
             padding: 20px;
@@ -1187,12 +1183,9 @@ def main():
             if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
                 score_data = analysis['result']
                 
-                # ========== TOP METRICS ROW ==========
                 st.markdown("### 🎯 Key Metrics")
-                
                 col1, col2, col3, col4 = st.columns(4)
                 
-                # Metric 1: Overall Score
                 with col1:
                     score = score_data.get('overall_score', 0)
                     if score >= 70:
@@ -1210,7 +1203,6 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Metric 2: ATS Status
                 with col2:
                     prediction = score_data.get('prediction', {})
                     pass_ats = prediction.get('pass_ats', False)
@@ -1225,7 +1217,6 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Metric 3: Interview Chance
                 with col3:
                     interview_chance = prediction.get('interview_probability', 'N/A')
                     if interview_chance == "High":
@@ -1243,10 +1234,8 @@ def main():
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Metric 4: Shortlist Time
                 with col4:
                     shortlist_time = prediction.get('shortlist_time', 'N/A')
-                    
                     st.markdown(f"""
                     <div class="dashboard-metric">
                         <div class="metric-title">⏱️ Shortlist Time</div>
@@ -1257,32 +1246,19 @@ def main():
                 
                 st.markdown("---")
                 
-                # ========== VISUALIZATIONS ==========
                 col_viz1, col_viz2 = st.columns(2)
                 
                 with col_viz1:
                     st.markdown('<div class="chart-container">', unsafe_allow_html=True)
                     st.markdown('<div class="chart-title">📈 ATS Compatibility Score</div>', unsafe_allow_html=True)
                     
-                    # Create enhanced gauge chart
                     fig = go.Figure(go.Indicator(
                         mode="gauge+number",
                         value=score,
-                        number={
-                            'font': {'size': 60, 'color': 'white', 'family': 'Arial Black'},
-                            'suffix': "%",
-                        },
+                        number={'font': {'size': 60, 'color': 'white', 'family': 'Arial Black'}, 'suffix': "%"},
                         gauge={
-                            'axis': {
-                                'range': [0, 100],
-                                'tickwidth': 2,
-                                'tickcolor': "white",
-                                'tickfont': {'size': 12, 'color': 'white'}
-                            },
-                            'bar': {
-                                'color': '#00C853' if score >= 70 else '#FFD600' if score >= 40 else '#FF3D00',
-                                'thickness': 0.3
-                            },
+                            'axis': {'range': [0, 100], 'tickcolor': "white", 'tickfont': {'color': 'white'}},
+                            'bar': {'color': '#00C853' if score >= 70 else '#FFD600' if score >= 40 else '#FF3D00', 'thickness': 0.3},
                             'bgcolor': '#2d2d2d',
                             'borderwidth': 2,
                             'bordercolor': '#667eea',
@@ -1290,23 +1266,11 @@ def main():
                                 {'range': [0, 40], 'color': 'rgba(255, 61, 0, 0.2)'},
                                 {'range': [40, 70], 'color': 'rgba(255, 214, 0, 0.2)'},
                                 {'range': [70, 100], 'color': 'rgba(0, 200, 83, 0.2)'}
-                            ],
-                            'threshold': {
-                                'line': {'color': "white", 'width': 4},
-                                'thickness': 0.75,
-                                'value': score
-                            }
+                            ]
                         }
                     ))
                     
-                    fig.update_layout(
-                        height=350,
-                        margin=dict(l=30, r=30, t=50, b=30),
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        font={'color': "white"}
-                    )
-                    
+                    fig.update_layout(height=350, paper_bgcolor='rgba(0,0,0,0)', font={'color': "white"})
                     st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                     st.markdown('</div>', unsafe_allow_html=True)
                 
@@ -1316,255 +1280,82 @@ def main():
                     
                     breakdown = score_data.get('breakdown', {})
                     if breakdown:
-                        # Create radar chart with better visibility
-                        categories = list(breakdown.keys())
+                        categories = [c.replace('_', ' ').title() for c in breakdown.keys()]
                         values = list(breakdown.values())
                         
                         fig = go.Figure()
-                        
-                        # Add filled area
                         fig.add_trace(go.Scatterpolar(
                             r=values + [values[0]],
-                            theta=[c.replace('_', ' ').title() for c in categories] + [categories[0].replace('_', ' ').title()],
+                            theta=categories + [categories[0]],
                             fill='toself',
                             fillcolor='rgba(102, 126, 234, 0.3)',
-                            line=dict(color='#667eea', width=3),
-                            name='Score'
-                        ))
-                        
-                        # Add markers at each point
-                        fig.add_trace(go.Scatterpolar(
-                            r=values,
-                            theta=[c.replace('_', ' ').title() for c in categories],
-                            mode='markers+text',
-                            marker=dict(size=12, color='white', line=dict(color='#667eea', width=2)),
-                            text=[f"{v}%" for v in values],
-                            textposition="top center",
-                            textfont=dict(color='white', size=11, family='Arial Black'),
-                            showlegend=False
+                            line=dict(color='#667eea', width=3)
                         ))
                         
                         fig.update_layout(
                             polar=dict(
-                                radialaxis=dict(
-                                    visible=True,
-                                    range=[0, 100],
-                                    tickfont=dict(color='white', size=10),
-                                    gridcolor='rgba(255,255,255,0.2)',
-                                    gridwidth=1,
-                                ),
-                                angularaxis=dict(
-                                    tickfont=dict(color='white', size=11, family='Arial Black'),
-                                    gridcolor='rgba(255,255,255,0.2)',
-                                    linecolor='rgba(255,255,255,0.2)',
-                                ),
-                                bgcolor='rgba(0,0,0,0)'
+                                radialaxis=dict(visible=True, range=[0, 100], tickfont={'color': 'white'}),
+                                angularaxis=dict(tickfont={'color': 'white'})
                             ),
                             showlegend=False,
                             height=350,
-                            margin=dict(l=80, r=80, t=30, b=30),
-                            paper_bgcolor='rgba(0,0,0,0)',
-                            plot_bgcolor='rgba(0,0,0,0)'
+                            paper_bgcolor='rgba(0,0,0,0)'
                         )
-                        
                         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
                     
                     st.markdown('</div>', unsafe_allow_html=True)
                 
-                # ========== KEYWORD ANALYSIS ==========
                 st.markdown("---")
                 st.markdown("### 🔑 Keyword Analysis")
                 
                 keywords = score_data.get('keywords', {})
-                
                 col_kw1, col_kw2 = st.columns(2)
                 
                 with col_kw1:
-                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                    st.markdown('<div class="chart-title">✅ Matching Keywords</div>', unsafe_allow_html=True)
-                    
                     if keywords.get('matched'):
+                        st.markdown("#### ✅ Matching Keywords")
                         for kw in keywords['matched'][:8]:
-                            st.markdown(f"""
-                            <div style="background: #2d2d2d; padding: 8px 15px; border-radius: 20px; 
-                                        margin: 5px; display: inline-block; border: 1px solid #00C853;">
-                                <span style="color: #00C853; font-weight: bold;">✓</span>
-                                <span style="color: white; margin-left: 5px;">{kw}</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    else:
-                        st.info("No matching keywords found")
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
+                            st.markdown(f"- **{kw}**")
                 
                 with col_kw2:
-                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                    st.markdown('<div class="chart-title">❌ Missing Keywords</div>', unsafe_allow_html=True)
-                    
                     if keywords.get('missing'):
+                        st.markdown("#### ❌ Missing Keywords")
                         for kw in keywords['missing'][:8]:
-                            st.markdown(f"""
-                            <div style="background: #2d2d2d; padding: 8px 15px; border-radius: 20px; 
-                                        margin: 5px; display: inline-block; border: 1px solid #FF3D00;">
-                                <span style="color: #FF3D00; font-weight: bold;">✗</span>
-                                <span style="color: white; margin-left: 5px;">{kw}</span>
-                            </div>
-                            """, unsafe_allow_html=True)
-                    else:
-                        st.info("No missing keywords found")
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                # ========== IMPROVEMENT ROADMAP ==========
-                st.markdown("---")
-                st.markdown("### 📈 Improvement Roadmap")
-                
-                improvements = score_data.get('improvements', [])
-                
-                if improvements:
-                    for idx, imp in enumerate(improvements, 1):
-                        with st.expander(f"**Step {idx}:** {imp[:50]}...", expanded=False):
-                            st.markdown(f"""
-                            <div style="background: #2d2d2d; padding: 15px; border-radius: 10px; border-left: 5px solid #667eea;">
-                                <p style="color: white; margin: 0;">{imp}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                            
-                            # Add notes section
-                            notes_key = f"notes_{idx}_{datetime.now().timestamp()}"
-                            st.text_area("Your notes:", key=notes_key, placeholder="Add your action plan here...")
-                else:
-                    st.info("No improvement suggestions available")
-                
-                # ========== ATS OPTIMIZATION TIPS ==========
-                st.markdown("---")
-                st.markdown("### 🎯 ATS Optimization Tips")
-                
-                tips = score_data.get('ats_optimization_tips', [])
-                
-                if tips:
-                    cols = st.columns(3)
-                    for idx, tip in enumerate(tips[:3]):
-                        with cols[idx]:
-                            st.markdown(f"""
-                            <div style="background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
-                                        padding: 15px; border-radius: 10px; height: 100%;
-                                        border: 1px solid #3d3d3d;">
-                                <span style="color: #667eea; font-size: 1.5rem;">💡</span>
-                                <p style="color: white; margin-top: 10px;">{tip}</p>
-                            </div>
-                            """, unsafe_allow_html=True)
-                else:
-                    st.info("No optimization tips available")
-            
-            else:
-                st.info("📊 Dashboard available only for ATS Score analysis. Run an ATS Score analysis first.")
-    
-    # TAB 4: VISUALIZE
+                            st.markdown(f"- **{kw}**")
+        
+        else:
+            st.info("📊 Dashboard available only for ATS Score analysis.")
+
+    # ============ TAB 4: VISUALIZE ============
     with tab4:
         st.header("📈 Advanced Visualizations")
-        
-        if st.session_state.analysis_history:
-            # History visualization
-            scores = []
-            dates = []
-            
-            for analysis in st.session_state.analysis_history:
-                if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                    score = analysis['result'].get('overall_score', 0)
-                    scores.append(score)
-                    dates.append(analysis['timestamp'])
-            
-            if scores:
-                # Create progress chart
-                df = pd.DataFrame({
-                    'Date': dates,
-                    'Score': scores
-                })
-                
-                fig = px.line(df, x='Date', y='Score', 
-                            title='📈 Your ATS Score Progress',
-                            markers=True,
-                            line_shape='spline')
-                
-                fig.update_layout(
-                    xaxis_title="Analysis Date",
-                    yaxis_title="ATS Score (%)",
-                    yaxis_range=[0, 100],
-                    hovermode='x unified'
-                )
-                
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Score distribution
-                avg_score = sum(scores) / len(scores)
-                max_score = max(scores)
-                min_score = min(scores)
-                
-                col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
-                
-                with col_stat1:
-                    st.metric("Average Score", f"{avg_score:.1f}%")
-                
-                with col_stat2:
-                    st.metric("Best Score", f"{max_score}%")
-                
-                with col_stat3:
-                    st.metric("Lowest Score", f"{min_score}%")
-                
-                with col_stat4:
-                    st.metric("Total Analyses", len(scores))
-            else:
-                st.info("No ATS Score analyses found in history.")
-        else:
-            st.info("No analysis history yet. Run some analyses first!")
-    
-    # TAB 5: HISTORY
+        st.info("Visualization features coming soon!")
+
+    # ============ TAB 5: HISTORY ============
     with tab5:
         st.header("📚 Analysis History")
         
         if st.session_state.analysis_history:
             for idx, analysis in enumerate(reversed(st.session_state.analysis_history)):
-                with st.expander(f"Analysis #{len(st.session_state.analysis_history)-idx} - {analysis['timestamp']}", expanded=False):
-                    col_h1, col_h2, col_h3 = st.columns([2, 1, 1])
+                with st.expander(f"Analysis #{len(st.session_state.analysis_history)-idx} - {analysis['timestamp']}"):
+                    st.write(f"**Type:** {analysis['type'].title()}")
+                    st.write(f"**File:** {analysis['filename']}")
                     
-                    with col_h1:
-                        st.markdown(f"**Type:** {analysis['type'].title()}")
-                        st.markdown(f"**Model:** {analysis['model']}")
+                    if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
+                        score = analysis['result'].get('overall_score', 0)
+                        st.metric("Score", f"{score}%")
                     
-                    with col_h2:
-                        st.markdown(f"**File:** {analysis['filename']}")
-                    
-                    with col_h3:
-                        if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                            score = analysis['result'].get('overall_score', 0)
-                            st.metric("Score", f"{score}%")
-                    
-                    st.markdown("**Job Description Preview:**")
-                    st.caption(analysis['job_desc_preview'])
-                    
-                    st.markdown("---")
-                    
-                    if st.button(f"📋 Load This Analysis", key=f"load_{idx}"):
+                    if st.button("📋 Load", key=f"load_{idx}"):
                         st.session_state.current_analysis = analysis
                         st.rerun()
-                    
-                    if st.button(f"🗑️ Delete This Analysis", key=f"delete_{idx}"):
-                        # Find and remove
-                        for i, a in enumerate(st.session_state.analysis_history):
-                            if a['timestamp'] == analysis['timestamp']:
-                                st.session_state.analysis_history.pop(i)
-                                break
-                        st.rerun()
         else:
-            st.info("No analysis history yet. Your first analysis will appear here!")
-    
-    # FOOTER
+            st.info("No analysis history yet.")
+
+    # ============ FOOTER ============
     st.markdown("---")
     st.markdown("""
     <div style="text-align: center; color: #666; padding: 2rem;">
         <p>🚀 <strong>ATS Resume Analyzer PRO</strong> • Made with ❤️ using Streamlit & Groq AI</p>
-        <p style="font-size: 0.9rem;">Disclaimer: AI analysis is for guidance only. Always verify with human review.</p>
     </div>
     """, unsafe_allow_html=True)
 
