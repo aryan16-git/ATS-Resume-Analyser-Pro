@@ -6,4 +6,4 @@ venv/
 .env.local 
 .vscode/ 
 .idea/ 
-.streamlit/ 
+.streamlit/secrets.toml
