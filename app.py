@@ -1,1404 +1,482 @@
 """
-🚀 ATS Resume Analyzer PRO
-Advanced AI-powered resume optimization tool
+app.py
+ATS Resume Analyser PRO -- main entry point.
+
+Flow:
+1. Configure page + inject design system.
+2. Gate on auth -- logged-out users only ever see render_auth_page().
+3. Sidebar: user info, logout, model picker.
+4. Tabs: Upload -> Analyze -> Dashboard -> History (+ Admin, if is_admin).
 """
 
-# ============ IMPORTS ============
-import streamlit as st
-import os
-import tempfile
-import json
 from datetime import datetime
-import base64
-import io
-import time
 
-# Import Groq AI
-from groq import Groq
+import streamlit as st
 
-import PyPDF2
-import pdfplumber
-import fitz 
+from auth import (
+    init_auth_session_state,
+    is_logged_in,
+    render_auth_page,
+    render_logout_button,
+    get_current_user,
+    get_current_user_id,
+)
+from database import (
+    save_analysis,
+    get_user_history,
+    log_api_usage,
+    admin_get_summary_metrics,
+    admin_get_recent_users,
+    admin_get_analysis_type_breakdown,
+)
+from analyzer import (
+    AVAILABLE_MODELS,
+    extract_text_from_pdf,
+    get_file_stats,
+    run_analysis,
+)
+from styles import (
+    inject_custom_css,
+    render_masthead,
+    render_stat_card,
+    render_skeleton_loader,
+    create_gauge_chart,
+    create_radar_chart,
+)
 
-# Import data visualization
-import plotly.graph_objects as go
-import plotly.express as px
-import pandas as pd
-
-# Import image processing
-from PIL import Image
 
 # ============ PAGE CONFIG ============
 st.set_page_config(
-    page_title="ATS Resume Analyzer PRO",
+    page_title="ATS Resume Analyser PRO",
     page_icon="🚀",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
+inject_custom_css()
+init_auth_session_state()
 
-# Add after imports, before CSS
-def detect_dark_mode():
-    """Detect if user is in dark mode"""
-    # This is a simple detection - for more advanced, use JavaScript
-    try:
-        # Check for dark mode class or attribute
-        return False  # Default to light
-    except:
-        return False
 
-# ============ CUSTOM CSS ============
+# ============ AUTH GATE ============
+if not is_logged_in():
+    render_masthead(
+        eyebrow="AI-Powered Resume Intelligence",
+        title="ATS Resume Analyser",
+        subtitle="See exactly how your resume reads to an applicant tracking system before a recruiter ever does.",
+    )
+    render_auth_page()
+    st.stop()  # nothing below this line renders for logged-out users
+
+
+# ============ SESSION STATE (analysis-specific) ============
+if "resume_text" not in st.session_state:
+    st.session_state.resume_text = ""
+if "resume_filename" not in st.session_state:
+    st.session_state.resume_filename = ""
+if "job_desc" not in st.session_state:
+    st.session_state.job_desc = ""
+if "current_result" not in st.session_state:
+    st.session_state.current_result = None  # dict from analyzer.run_analysis
+if "current_analysis_type" not in st.session_state:
+    st.session_state.current_analysis_type = None
+if "sidebar_open" not in st.session_state:
+    st.session_state.sidebar_open = True
+
+
+# ============ CUSTOM SIDEBAR TOGGLE ============
+# Streamlit's own built-in collapse arrow proved unreliable to restyle
+# reliably (its internal test-ids/behavior shift between versions), so
+# instead of fighting it we hide it and drive visibility ourselves with
+# one button we fully control.
 st.markdown("""
 <style>
-/* ========== BULLETPROOF DARK MODE FIX ========== */
-/* Nuclear option: Force everything in sidebar to be visible */
-section[data-testid="stSidebar"],
-section[data-testid="stSidebar"] *,
-section[data-testid="stSidebar"] h1,
-section[data-testid="stSidebar"] h2,
-section[data-testid="stSidebar"] h3,
-section[data-testid="stSidebar"] h4,
-section[data-testid="stSidebar"] h5,
-section[data-testid="stSidebar"] h6,
-section[data-testid="stSidebar"] p,
-section[data-testid="stSidebar"] span,
-section[data-testid="stSidebar"] div,
-section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] small,
-section[data-testid="stSidebar"] strong,
-section[data-testid="stSidebar"] em {
-    color: #ffffff !important;
-}
-
-/* Background for sidebar */
-section[data-testid="stSidebar"] {
-    background-color: #1a1a1a !important;
-}
-
-/* Input fields */
-section[data-testid="stSidebar"] .stTextInput > div > div > input,
-section[data-testid="stSidebar"] textarea,
-section[data-testid="stSidebar"] select {
-    background-color: #2d2d2d !important;
-    color: #ffffff !important;
-    border: 1px solid #555 !important;
-}
-
-/* Buttons in sidebar */
-section[data-testid="stSidebar"] .stButton > button {
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    color: white !important;
-    border: none;
-}
-
-/* Select boxes */
-section[data-testid="stSidebar"] [data-baseweb="select"] {
-    background-color: #2d2d2d !important;
-    color: #ffffff !important;
-}
-
-/* Expanders */
-section[data-testid="stSidebar"] .streamlit-expanderHeader {
-    background-color: #2d2d2d !important;
-    color: #ffffff !important;
-}
-
-/* Metrics */
-section[data-testid="stSidebar"] .stMetric {
-    color: #ffffff !important;
-}
-
-/* Alerts */
-section[data-testid="stSidebar"] .stAlert {
-    background-color: #2d2d2d !important;
-    color: #ffffff !important;
-}
-
-/* ========== ORIGINAL STYLES (KEEP YOUR DESIGN) ========== */
-.main-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 2.5rem;
-    border-radius: 15px;
-    color: white;
-    text-align: center;
-    margin-bottom: 2rem;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-}
-
-.metric-card {
-    background: white;
-    padding: 1.5rem;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    border-left: 5px solid #667eea;
-    transition: transform 0.3s;
-}
-.metric-card:hover {
-    transform: translateY(-5px);
-}
-
-.stProgress > div > div > div > div {
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-}
-
-.stButton > button {
-    background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    border: none;
-    padding: 0.75rem 1.5rem;
-    border-radius: 8px;
-    font-weight: bold;
-    transition: all 0.3s;
-}
-.stButton > button:hover {
-    transform: scale(1.05);
-    box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-}
-
-.stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-}
-.stTabs [data-baseweb="tab"] {
-    border-radius: 8px 8px 0px 0px;
-    padding: 10px 20px;
-    font-weight: bold;
-}
-
-.stTextArea textarea {
-    border-radius: 10px;
-    border: 2px solid #e9ecef;
-}
-
-[data-testid="stFileUploader"] {
-    border: 2px dashed #667eea;
-    border-radius: 10px;
-    padding: 20px;
-}
-
-.stAlert {
-    border-radius: 10px;
-}
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="stSidebarCollapseButton"] { display: none !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ============ INITIALIZE SESSION STATE ============
-if 'analysis_history' not in st.session_state:
-    st.session_state.analysis_history = []
-if 'current_analysis' not in st.session_state:
-    st.session_state.current_analysis = None
-if 'api_key' not in st.session_state:
-    st.session_state.api_key = ""
-if 'resume_text' not in st.session_state:
-    st.session_state.resume_text = ""
+toggle_label = "✕ Hide menu" if st.session_state.sidebar_open else "☰ Menu"
+if st.button(toggle_label, key="custom_sidebar_toggle"):
+    st.session_state.sidebar_open = not st.session_state.sidebar_open
+    st.rerun()
 
-# ============ GROQ AI SETUP ============
-def get_groq_client(api_key):
-    """Create Groq client with API key"""
-    try:
-        return Groq(api_key=api_key.strip())
-    except Exception as e:
-        st.error(f"Error creating Groq client: {str(e)}")
-        return None
-
-# Available AI models
-AVAILABLE_MODELS = {
-    "⚡ Llama 3.1 8B (Fast & Free)": "llama-3.1-8b-instant",
-    "🧠 Llama 3.3 70B (Most Accurate)": "llama-3.3-70b-versatile",
-    "💎 Gemma 2 9B (Balanced)": "gemma2-9b-it",
-    "🚀 Mixtral 8x22B (Expert)": "mixtral-8x22b-instruct"
-}
-
-# ============ PDF PROCESSING FUNCTIONS ============
-def extract_text_from_pdf(uploaded_file):
-    """Extract text from PDF using multiple methods"""
-    try:
-        text = ""
-        
-        # Method 1: Try pdfplumber first (best for most PDFs)
-        try:
-            import pdfplumber
-            with pdfplumber.open(io.BytesIO(uploaded_file.getvalue())) as pdf:
-                for page in pdf.pages:
-                    page_text = page.extract_text()
-                    if page_text:
-                        text += page_text + "\n\n"
-                
-                # If we got good text, return it
-                if len(text.strip()) > 100:
-                    return text[:5000]
-        except ImportError:
-            st.warning("pdfplumber not installed. Trying other methods...")
-        except Exception as e:
-            st.warning(f"pdfplumber failed: {str(e)[:100]}")
-        
-        # Method 2: Try PyPDF2
-        try:
-            uploaded_file.seek(0)  # Reset file pointer
-            import PyPDF2
-            pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.getvalue()))
-            for page in pdf_reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n\n"
-            
-            if len(text.strip()) > 100:
-                return text[:5000]
-        except Exception as e:
-            st.warning(f"PyPDF2 failed: {str(e)[:100]}")
-        
-        # Method 3: Try pypdf
-        try:
-            uploaded_file.seek(0)
-            import pypdf
-            pdf_reader = pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue()))
-            for page in pdf_reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n\n"
-            
-            if len(text.strip()) > 100:
-                return text[:5000]
-        except Exception as e:
-            st.warning(f"pypdf failed: {str(e)[:100]}")
-        
-        # Method 4: Try PyMuPDF (fitz) as last resort
-        try:
-            uploaded_file.seek(0)
-            import fitz  # PyMuPDF
-            doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
-            for page in doc:
-                text += page.get_text()
-            doc.close()
-            
-            if len(text.strip()) > 100:
-                return text[:5000]
-        except ImportError:
-            st.warning("PyMuPDF not installed")
-        except Exception as e:
-            st.warning(f"PyMuPDF failed: {str(e)[:100]}")
-        
-        # If we get here, extraction failed
-        if len(text.strip()) > 50:
-            return text[:5000]  # Return whatever we got
-        else:
-            return "⚠️ Could not extract text. Please ensure: 1) PDF has selectable text (not scanned image) 2) PDF is not password protected 3) Try converting to text-based PDF."
-            
-    except Exception as e:
-        return f"Error extracting PDF: {str(e)[:200]}"
-
-def get_file_stats(uploaded_file):
-    """Get statistics about the uploaded file"""
-    stats = {
-        'filename': uploaded_file.name,
-        'size_mb': len(uploaded_file.getvalue()) / (1024 * 1024),
-        'pages': 0
-    }
-    
-    # Try multiple methods to get page count
-    methods_to_try = [
-        ('pdfplumber', lambda: len(pdfplumber.open(io.BytesIO(uploaded_file.getvalue())).pages)),
-        ('PyPDF2', lambda: len(PyPDF2.PdfReader(io.BytesIO(uploaded_file.getvalue())).pages)),
-        ('pypdf', lambda: len(pypdf.PdfReader(io.BytesIO(uploaded_file.getvalue())).pages)),
-        ('fitz', lambda: len(fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")))
-    ]
-    
-    for lib_name, func in methods_to_try:
-        try:
-            # Dynamically import if not already imported
-            if lib_name == 'pdfplumber' and 'pdfplumber' not in globals():
-                import pdfplumber
-            elif lib_name == 'PyPDF2' and 'PyPDF2' not in globals():
-                import PyPDF2
-            elif lib_name == 'pypdf' and 'pypdf' not in globals():
-                import pypdf
-            elif lib_name == 'fitz' and 'fitz' not in globals():
-                import fitz
-            
-            stats['pages'] = func()
-            break  # Stop at first successful method
-        except:
-            continue
-    
-    return stats
-
-# ============ AI ANALYSIS FUNCTIONS ============
-def analyze_with_ai(client, model, job_desc, resume_text, analysis_type):
-    """Analyze resume with AI based on analysis type"""
-    
-    analysis_prompts = {
-        "detailed": {
-            "system": """You are an expert HR Director with 20+ years experience in tech recruitment.
-            You analyze resumes against job descriptions with exceptional detail and accuracy.
-            Always provide actionable, specific feedback.""",
-            "user": f"""# COMPREHENSIVE RESUME ANALYSIS REPORT
-
-## JOB DESCRIPTION ANALYSIS:
-{job_desc[:2000]}
-
-## RESUME CONTENT:
-{resume_text[:2000]}
-
-## PLEASE PROVIDE:
-
-### 1. 🎯 EXECUTIVE SUMMARY
-- Overall Match Score: [0-100]%
-- One-line verdict
-- Confidence level: High/Medium/Low
-
-### 2. 📊 QUANTITATIVE ASSESSMENT
-**Skills Match:**
-- Technical Skills Alignment: [X/10]
-- Soft Skills Match: [X/10]
-- Tools & Technologies: [X/10]
-
-**Experience Evaluation:**
-- Years of Relevant Experience: [X] vs Required: [Y]
-- Role Relevance: [X/10]
-- Industry Experience: [X/10]
-
-### 3. ✅ STRENGTHS IDENTIFIED
-[List 5-7 specific strengths with examples from resume]
-
-### 4. ⚠️ AREAS FOR IMPROVEMENT
-[List 5-7 specific gaps with actionable solutions]
-
-### 5. 🔑 KEYWORD ANALYSIS
-- Top 10 Matching Keywords: [list]
-- Top 10 Missing Keywords: [list]
-- Keyword Density Score: [X/10]
-
-### 6. 📈 ATS OPTIMIZATION SCORE: [0-100]
-- Formatting: [X/10]
-- Readability: [X/10]
-- ATS Compliance: [X/10]
-
-### 7. 🎯 HIRING PROBABILITY PREDICTION
-- Pass ATS Screening: Yes/No/Maybe
-- Likelihood of Interview: High/Medium/Low
-- Estimated Shortlist Time: Immediate/1-3 days/1 week+
-
-### 8. 💡 ACTIONABLE RECOMMENDATIONS
-[Top 5 specific actions to improve resume]
-
-### 9. 📝 COVER LETTER TIPS
-[3 key points to highlight in cover letter]
-
-### 10. 🎯 FINAL VERDICT & NEXT STEPS
-
-Format with emojis, bold headings, and clear bullet points."""
-        },
-        
-        "ats_score": {
-            "system": """You are an ATS (Applicant Tracking System) algorithm expert.
-            You analyze resumes strictly like an ATS would.
-            Be objective, numerical, and data-driven.""",
-            "user": f"""Generate ONLY a JSON response for ATS analysis:
-
-JOB DESCRIPTION:
-{job_desc[:1000]}
-
-RESUME CONTENT:
-{resume_text[:1000]}
-
-Return this EXACT JSON structure:
-{{
-    "overall_score": 0-100,
-    "breakdown": {{
-        "keyword_match": 0-100,
-        "experience_match": 0-100,
-        "skills_match": 0-100,
-        "education_match": 0-100,
-        "formatting": 0-100,
-        "readability": 0-100
-    }},
-    "prediction": {{
-        "pass_ats": true/false,
-        "interview_probability": "High/Medium/Low",
-        "shortlist_time": "Immediate/1-3 days/1 week+"
-    }},
-    "keywords": {{
-        "matched": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-        "missing": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
-        "suggested": ["keyword1", "keyword2", "keyword3"]
-    }},
-    "improvements": [
-        "Improvement 1",
-        "Improvement 2", 
-        "Improvement 3",
-        "Improvement 4",
-        "Improvement 5"
-    ],
-    "ats_optimization_tips": [
-        "Tip 1",
-        "Tip 2",
-        "Tip 3"
-    ]
-}}"""
-        },
-        
-        "cover_letter": {
-            "system": """You are a professional cover letter writer specializing in tech roles.
-            Write compelling, personalized cover letters that get interviews.""",
-            "user": f"""Write a professional cover letter based on:
-
-JOB DESCRIPTION:
-{job_desc}
-
-RESUME CONTENT:
-{resume_text[:1500]}
-
-Format:
-1. Professional header with date and contact info
-2. Appropriate salutation
-3. Strong opening paragraph showing enthusiasm
-4. 2-3 body paragraphs matching skills to job requirements
-5. Specific examples from resume
-6. Closing paragraph expressing interest
-7. Professional sign-off
-
-Make it:
-- Specific to this job
-- Confident but not arrogant
-- 250-350 words
-- Professional tone"""
-        }
-    }
-    
-    try:
-        prompt = analysis_prompts[analysis_type]
-        
-        response = client.chat.completions.create(
-            model=model,
-            messages=[
-                {"role": "system", "content": prompt["system"]},
-                {"role": "user", "content": prompt["user"]}
-            ],
-            temperature=0.7,
-            max_tokens=2048,
-            top_p=1
-        )
-        
-        result = response.choices[0].message.content
-        
-        # Parse JSON if it's ATS score
-        if analysis_type == "ats_score":
-            try:
-                # Find JSON in response
-                import re
-                json_match = re.search(r'\{.*\}', result, re.DOTALL)
-                if json_match:
-                    parsed = json.loads(json_match.group())
-                    return parsed
-            except Exception as e:
-                st.warning(f"Could not parse JSON: {str(e)}")
-                # Return as text if parsing fails
-                return result
-        
-        return result
-        
-    except Exception as e:
-        st.error(f"AI Analysis Error: {str(e)}")
-        return None
-
-# ============ VISUALIZATION FUNCTIONS ============
-def create_gauge_chart(score, title, color="#667eea"):
-    """Create beautiful gauge chart"""
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=score,
-        title={'text': title, 'font': {'size': 24, 'color': color}},
-        domain={'x': [0, 1], 'y': [0, 1]},
-        gauge={
-            'axis': {'range': [0, 100], 'tickwidth': 1, 'tickcolor': "darkblue"},
-            'bar': {'color': color},
-            'bgcolor': "white",
-            'borderwidth': 2,
-            'bordercolor': "gray",
-            'steps': [
-                {'range': [0, 40], 'color': "#ff6b6b"},  # Red
-                {'range': [40, 70], 'color': "#ffd93d"}, # Yellow
-                {'range': [70, 100], 'color': "#6bcf7f"} # Green
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': score
-            }
-        }
-    ))
-    
-    fig.update_layout(
-        height=300,
-        margin=dict(l=50, r=50, t=100, b=50),
-        paper_bgcolor='rgba(0,0,0,0)',
-        font={'color': "darkblue", 'family': "Arial"}
-    )
-    
-    return fig
-
-def create_radar_chart(scores_dict, title="Skills Breakdown"):
-    """Create radar chart for skills"""
-    categories = list(scores_dict.keys())
-    values = list(scores_dict.values())
-    
-    fig = go.Figure(data=go.Scatterpolar(
-        r=values + [values[0]],  # Close the shape
-        theta=categories + [categories[0]],
-        fill='toself',
-        fillcolor='rgba(102, 126, 234, 0.3)',
-        line=dict(color='#667eea', width=3),
-        marker=dict(size=8, color='#764ba2')
-    ))
-    
-    fig.update_layout(
-        polar=dict(
-            radialaxis=dict(
-                visible=True,
-                range=[0, 100],
-                tickfont=dict(size=10)
-            ),
-            angularaxis=dict(
-                tickfont=dict(size=11),
-                rotation=90
-            ),
-            bgcolor='rgba(0,0,0,0)'
-        ),
-        showlegend=False,
-        title=dict(
-            text=title,
-            font=dict(size=16, color='#333')
-        ),
-        height=400,
-        margin=dict(l=80, r=80, t=80, b=80),
-        paper_bgcolor='rgba(0,0,0,0)'
-    )
-    
-    return fig
-
-def create_bar_chart(keywords, title, color="#667eea"):
-    """Create horizontal bar chart for keywords"""
-    df = pd.DataFrame({
-        'Keywords': keywords[:10],  # Top 10
-        'Count': [1] * min(10, len(keywords))  # Placeholder values
-    })
-    
-    fig = px.bar(
-        df, 
-        y='Keywords', 
-        x='Count',
-        orientation='h',
-        title=title,
-        color_discrete_sequence=[color]
-    )
-    
-    fig.update_layout(
-        height=400,
-        showlegend=False,
-        yaxis={'categoryorder': 'total ascending'},
-        xaxis={'showticklabels': False, 'title': ''},
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)'
-    )
-    
-    return fig
-
-# ============ UI COMPONENTS ============
-def render_header():
-    """Render the main header"""
+if not st.session_state.sidebar_open:
     st.markdown("""
-    <div class="main-header">
-        <h1 style="margin: 0; font-size: 3rem;">🚀 ATS Resume Analyzer PRO</h1>
-        <p style="font-size: 1.2rem; opacity: 0.9;">AI-powered resume optimization • ATS compatibility check • Hiring probability prediction</p>
-    </div>
+    <style>
+    section[data-testid="stSidebar"] { display: none !important; }
+    </style>
     """, unsafe_allow_html=True)
 
-def render_sidebar():
-    """Render the sidebar"""
-    with st.sidebar:
-        # Logo/Header
-        st.markdown("""
-        <div style="text-align: center; margin-bottom: 2rem; color: #ffffff !important;">
-            <h2 style="color: #ffffff !important;">⚙️ Control Panel</h2>
-            <p style="color: #b0b0b0 !important;">Configure your analysis</p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # API Key Section
-        st.subheader("🔑 API Configuration")
-        api_key = st.text_input(
-            "Groq API Key:",
-            type="password",
-            help="Get free API key from console.groq.com",
-            value=st.session_state.get('api_key', '')
-        )
-        
-        if api_key:
-            st.session_state.api_key = api_key
-            st.success("✅ API Key saved!")
-            
-            # Test API key
-            if st.button("Test Connection", use_container_width=True):
-                with st.spinner("Testing connection..."):
-                    try:
-                        client = get_groq_client(api_key)
-                        if client:
-                            st.success("✅ Connected successfully!")
-                    except:
-                        st.error("❌ Connection failed")
-        else:
-            st.warning("⚠️ Enter API key to continue")
-        
-        # API Key Help
-        with st.expander("How to get FREE API Key"):
-            st.markdown("""
-            1. **Go to** [console.groq.com](https://console.groq.com)
-            2. **Sign up** with email (free)
-            3. **Navigate** to API Keys
-            4. **Click** "Create API Key"
-            5. **Copy** the key (starts with `gsk_`)
-            6. **Paste** above
-            7. **Free credits:** 30,000 tokens per minute
-            """)
-        
-        st.markdown("---")
-        
-        # Model Selection
-        st.subheader("🤖 AI Model")
-        selected_model = st.selectbox(
-            "Choose AI Model:",
-            list(AVAILABLE_MODELS.keys()),
-            index=0,
-            help="Llama 3.1 8B is fastest for free tier"
-        )
-        
-        st.markdown("---")
-        
-        # Quick Stats
-        st.subheader("📈 Quick Stats")
-        if st.session_state.analysis_history:
-            total_analyses = len(st.session_state.analysis_history)
-            avg_score = sum([a.get('score', 0) for a in st.session_state.analysis_history if 'score' in a]) / max(1, total_analyses)
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("Total Analyses", total_analyses)
-            with col2:
-                st.metric("Avg Score", f"{avg_score:.1f}%")
-        else:
-            st.info("No analyses yet")
-        
-        st.markdown("---")
-        
-        # Quick Actions
-        st.subheader("⚡ Quick Actions")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Clear All", use_container_width=True):
-                st.session_state.clear()
-                st.rerun()
-        
-        with col2:
-            if st.button("📊 Demo Data", use_container_width=True):
-                # Load demo data
-                demo_job_desc = """Python Developer
-                
-Requirements:
-- 3+ years Python experience
-- Django/Flask framework knowledge
-- REST API development
-- SQL databases (PostgreSQL/MySQL)
-- Git version control
-- AWS/Azure cloud experience
-- Docker containerization
-- Unit testing (pytest)
-- Agile/Scrum methodology
-- Problem-solving skills
 
-Responsibilities:
-- Develop scalable web applications
-- Write clean, maintainable code
-- Collaborate with cross-functional teams
-- Participate in code reviews
-- Debug and optimize performance"""
-                
-                demo_resume = """John Doe
-Senior Python Developer
-john.doe@email.com | (123) 456-7890 | linkedin.com/in/johndoe
+# ============ SIDEBAR ============
+with st.sidebar:
+    st.markdown("### Control Panel")
+    render_logout_button(location="sidebar")
 
-SUMMARY
-5+ years experience in Python development with expertise in Django, Flask, and cloud technologies. Proven track record of delivering scalable web applications.
+    if st.session_state.get("is_admin"):
+        st.markdown("🛡️ **Admin access enabled**")
 
-EXPERIENCE
-Senior Python Developer | Tech Solutions Inc. | 2020-Present
-- Developed REST APIs using Django REST Framework serving 10,000+ requests/day
-- Implemented microservices architecture reducing latency by 40%
-- Led migration from monolithic to microservices architecture
-- Mentored 3 junior developers
-
-Python Developer | Startup XYZ | 2018-2020
-- Built full-stack web applications using Flask and React
-- Implemented CI/CD pipeline reducing deployment time by 60%
-- Developed automated testing suite with 95% code coverage
-
-SKILLS
-Programming: Python, JavaScript, SQL
-Frameworks: Django, Flask, React
-Databases: PostgreSQL, MySQL, MongoDB
-Cloud: AWS (EC2, S3, Lambda), Docker, Kubernetes
-Tools: Git, Jenkins, JIRA, pytest
-
-EDUCATION
-BS Computer Science | University of Technology | 2014-2018"""
-                
-                st.session_state.demo_job_desc = demo_job_desc
-                st.session_state.demo_resume = demo_resume
-                st.success("Demo data loaded!")
-        
-        return selected_model, api_key
-
-# ============ MAIN APP FUNCTION ============
-def main():
-    """Main application function"""
-    
-    # Render header
-    render_header()
-    
-    # Get sidebar configuration
-    selected_model_name, api_key = render_sidebar()
-    model_key = AVAILABLE_MODELS[selected_model_name]
-    
-    # Main tabs
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📝 Upload", 
-        "🔍 Analyze", 
-        "📊 Dashboard", 
-        "📈 Visualize", 
-        "📚 History"
-    ])
-    
-    # TAB 1: UPLOAD
-    with tab1:
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.header("📁 Upload Resume")
-            
-            # File uploader
-            uploaded_file = st.file_uploader(
-                "Choose your resume (PDF format):",
-                type=["pdf"],
-                help="Upload your resume in PDF format. For best results, use text-based PDF (not scanned image)."
-            )
-            
-            if uploaded_file:
-                # Get file stats
-                stats = get_file_stats(uploaded_file)
-                
-                # Display file info
-                col1a, col2a, col3a = st.columns(3)
-                with col1a:
-                    st.metric("File Name", stats['filename'])
-                with col2a:
-                    st.metric("File Size", f"{stats['size_mb']:.2f} MB")
-                with col3a:
-                    st.metric("Pages", stats['pages'] if stats['pages'] > 0 else "N/A")
-                
-                # Extract text
-                with st.spinner("📄 Extracting text from PDF..."):
-                    resume_text = extract_text_from_pdf(uploaded_file)
-                    st.session_state.resume_text = resume_text
-                
-                # Preview
-                with st.expander("📋 Preview Extracted Text", expanded=False):
-                    if "⚠️" in resume_text or "Error" in resume_text:
-                        st.warning(resume_text)
-                    else:
-                        st.text_area("", resume_text[:1500] + "...", height=300)
-            
-            st.markdown("---")
-            
-            # Job Description
-            st.header("📝 Job Description")
-            job_desc = st.text_area(
-                "Paste the complete job description:",
-                height=250,
-                placeholder="Copy and paste the entire job description here...\n\nTip: Include requirements, responsibilities, and qualifications for best results.",
-                value=st.session_state.get('demo_job_desc', '')
-            )
-            
-            if job_desc:
-                word_count = len(job_desc.split())
-                st.caption(f"📊 {word_count} words | {len(job_desc)} characters")
-            
-            # Demo button
-            if st.button("🎮 Load Demo Data", use_container_width=True):
-                if 'demo_job_desc' in st.session_state:
-                    st.rerun()
-        
-        with col2:
-            st.header("⚡ Quick Start Guide")
-            
-            st.info("""
-            ### 🎯 How to get best results:
-            
-            1. **Get API Key** (Free)
-               - Sign up at Groq.com
-               - Copy API key
-               - Paste in sidebar
-            
-            2. **Upload Resume**
-               - PDF format only
-               - Text-based (not scanned)
-               - Under 10MB size
-            
-            3. **Paste Job Description**
-               - Copy from job posting
-               - Include all requirements
-               - Be specific
-            
-            4. **Choose Analysis Type**
-               - Detailed: Complete report
-               - ATS Score: Quick score
-               - Cover Letter: AI-generated
-            
-            5. **Review & Improve**
-               - Check missing keywords
-               - Implement suggestions
-               - Re-analyze
-            """)
-            
-            st.markdown("---")
-            
-            # Status indicators
-            st.subheader("✅ Ready Check")
-            
-            status_col1, status_col2, status_col3 = st.columns(3)
-            
-            with status_col1:
-                st.metric("API", "✅" if api_key else "❌", 
-                         "Configured" if api_key else "Required")
-            
-            with status_col2:
-                st.metric("Resume", "✅" if uploaded_file else "❌", 
-                         "Uploaded" if uploaded_file else "Required")
-            
-            with status_col3:
-                st.metric("Job Desc", "✅" if job_desc else "❌", 
-                         "Added" if job_desc else "Required")
-    
-    # TAB 2: ANALYZE
-    with tab2:
-        st.header("🔍 AI Analysis")
-        
-        if not api_key:
-            st.warning("⚠️ Please enter your API key in the sidebar first!")
-            st.stop()
-        
-        if not uploaded_file:
-            st.warning("⚠️ Please upload your resume in the Upload tab!")
-            st.stop()
-        
-        if not job_desc:
-            st.warning("⚠️ Please paste a job description in the Upload tab!")
-            st.stop()
-        
-        # Analysis type selection
-        st.subheader("Choose Analysis Type:")
-        
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            detailed_btn = st.button("📋 Detailed Analysis", 
-                                   use_container_width=True,
-                                   help="Complete report with scores, strengths, weaknesses, and recommendations")
-        
-        with col2:
-            ats_btn = st.button("🎯 ATS Score & Keywords", 
-                              use_container_width=True,
-                              help="Quick ATS compatibility score with keyword analysis")
-        
-        with col3:
-            cover_btn = st.button("📝 Generate Cover Letter", 
-                                use_container_width=True,
-                                help="AI-generated personalized cover letter")
-        
-        st.markdown("---")
-        
-        # Analysis results area
-        analysis_result_placeholder = st.empty()
-        
-        # Handle analysis requests
-        if detailed_btn or ats_btn or cover_btn:
-            analysis_type = ""
-            if detailed_btn:
-                analysis_type = "detailed"
-            elif ats_btn:
-                analysis_type = "ats_score"
-            else:
-                analysis_type = "cover_letter"
-            
-            with st.spinner(f"🤖 Analyzing with {selected_model_name}..."):
-                try:
-                    # Get Groq client
-                    client = get_groq_client(api_key)
-                    
-                    if not client:
-                        st.error("Failed to create Groq client. Check API key.")
-                        return
-                    
-                    # Get resume text
-                    if not st.session_state.resume_text:
-                        resume_text = extract_text_from_pdf(uploaded_file)
-                    else:
-                        resume_text = st.session_state.resume_text
-                    
-                    # Run analysis
-                    result = analyze_with_ai(client, model_key, job_desc, resume_text, analysis_type)
-                    
-                    if result:
-                        # Store in session state
-                        analysis_data = {
-                            "type": analysis_type,
-                            "model": selected_model_name,
-                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "filename": uploaded_file.name,
-                            "job_desc_preview": job_desc[:100] + "...",
-                            "result": result
-                        }
-                        
-                        if analysis_type == "ats_score" and isinstance(result, dict):
-                            analysis_data["score"] = result.get("overall_score", 0)
-                        
-                        st.session_state.current_analysis = analysis_data
-                        st.session_state.analysis_history.append(analysis_data.copy())
-                        
-                        # Display success
-                        st.success("✅ Analysis complete!")
-                        
-                        # Rerun to show results
-                        st.rerun()
-                    
-                except Exception as e:
-                    st.error(f"❌ Analysis failed: {str(e)}")
-                    st.info("Please check your API key and try again.")
-        
-        # Display current analysis if exists
-        if st.session_state.current_analysis:
-            analysis = st.session_state.current_analysis
-            
-            with analysis_result_placeholder.container():
-                st.markdown(f"### 📊 Analysis Results")
-                st.caption(f"**Type:** {analysis['type'].title()} | **Model:** {analysis['model']} | **Time:** {analysis['timestamp']}")
-                
-                st.markdown("---")
-                
-                if analysis['type'] == "detailed":
-                    st.markdown(analysis['result'])
-                
-                elif analysis['type'] == "ats_score":
-                    if isinstance(analysis['result'], dict):
-                        score_data = analysis['result']
-                        
-                        # Overall score
-                        col_score1, col_score2 = st.columns([2, 1])
-                        
-                        with col_score1:
-                            st.plotly_chart(
-                                create_gauge_chart(
-                                    score_data.get('overall_score', 0),
-                                    "Overall ATS Score"
-                                ),
-                                use_container_width=True
-                            )
-                        
-                        with col_score2:
-                            prediction = score_data.get('prediction', {})
-                            st.metric("ATS Prediction", 
-                                     "✅ PASS" if prediction.get('pass_ats') else "❌ FAIL",
-                                     prediction.get('interview_probability', ''))
-                            
-                            st.metric("Shortlist Time", 
-                                     prediction.get('shortlist_time', 'N/A'))
-                        
-                        # Score breakdown
-                        st.subheader("📈 Score Breakdown")
-                        breakdown = score_data.get('breakdown', {})
-                        
-                        if breakdown:
-                            cols = st.columns(len(breakdown))
-                            for idx, (key, value) in enumerate(breakdown.items()):
-                                with cols[idx]:
-                                    progress = value / 100
-                                    st.progress(progress)
-                                    st.caption(f"**{key.replace('_', ' ').title()}**\n{value}%")
-                        
-                        # Keywords
-                        st.subheader("🔑 Keyword Analysis")
-                        keywords = score_data.get('keywords', {})
-                        
-                        col_kw1, col_kw2 = st.columns(2)
-                        
-                        with col_kw1:
-                            if keywords.get('matched'):
-                                st.markdown("#### ✅ Matching Keywords")
-                                for kw in keywords['matched']:
-                                    st.markdown(f"- `{kw}`")
-                        
-                        with col_kw2:
-                            if keywords.get('missing'):
-                                st.markdown("#### ❌ Missing Keywords")
-                                for kw in keywords['missing']:
-                                    st.markdown(f"- `{kw}`")
-                        
-                        # Improvements
-                        st.subheader("💡 Improvement Suggestions")
-                        improvements = score_data.get('improvements', [])
-                        
-                        for idx, imp in enumerate(improvements, 1):
-                            st.markdown(f"{idx}. {imp}")
-                        
-                        # Tips
-                        st.subheader("🎯 ATS Optimization Tips")
-                        tips = score_data.get('ats_optimization_tips', [])
-                        
-                        for tip in tips:
-                            st.info(f"💡 {tip}")
-                    
-                    else:
-                        st.markdown(analysis['result'])
-                
-                elif analysis['type'] == "cover_letter":
-                    st.markdown("### ✉️ AI-Generated Cover Letter")
-                    st.markdown("---")
-                    st.markdown(analysis['result'])
-                
-                # Download button
-                st.markdown("---")
-                
-                col_dl1, col_dl2, col_dl3 = st.columns(3)
-                
-                with col_dl1:
-                    # Download report
-                    if st.button("📥 Download Report", use_container_width=True):
-                        report_content = f"""
-                        ATS RESUME ANALYSIS REPORT
-                        =========================
-                        
-                        Analysis Type: {analysis['type'].title()}
-                        Date: {analysis['timestamp']}
-                        AI Model: {analysis['model']}
-                        Resume: {analysis['filename']}
-                        
-                        {'='*50}
-                        
-                        {analysis['result'] if isinstance(analysis['result'], str) else json.dumps(analysis['result'], indent=2)}
-                        """
-                        
-                        st.download_button(
-                            "Click to Download",
-                            report_content,
-                            file_name=f"ats_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                            mime="text/plain",
-                            key="download_report"
-                        )
-                
-                with col_dl2:
-                    if st.button("🔄 Run New Analysis", use_container_width=True):
-                        st.session_state.current_analysis = None
-                        st.rerun()
-                
-                with col_dl3:
-                    if st.button("⭐ Save to History", use_container_width=True):
-                        st.success("Saved to history!")
-    
-    # ============ TAB 3: DASHBOARD ============
-    with tab3:
-        st.markdown("""
-        <style>
-        /* ========== DASHBOARD CUSTOM STYLES ========== */
-        .dashboard-metric {
-            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
-            padding: 20px;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
-            margin: 10px 0;
-            border: 1px solid #3d3d3d;
-        }
-        
-        .metric-title {
-            color: #b0b0b0 !important;
-            font-size: 0.9rem !important;
-            font-weight: 500 !important;
-            text-transform: uppercase !important;
-            letter-spacing: 1px !important;
-            margin-bottom: 5px !important;
-        }
-        
-        .metric-value {
-            font-size: 3rem !important;
-            font-weight: 800 !important;
-            line-height: 1.2 !important;
-            margin: 5px 0 !important;
-            text-shadow: 2px 2px 4px rgba(0,0,0,0.3) !important;
-        }
-        
-        .metric-subtitle {
-            color: #808080 !important;
-            font-size: 0.8rem !important;
-            margin-top: 5px !important;
-        }
-        
-        .score-high { color: #00C853 !important; }
-        .score-medium { color: #FFD600 !important; }
-        .score-low { color: #FF3D00 !important; }
-        .status-pass { color: #00C853 !important; }
-        .status-fail { color: #FF3D00 !important; }
-        
-        .chart-container {
-            background: linear-gradient(135deg, #1e1e1e 0%, #2d2d2d 100%);
-            padding: 20px;
-            border-radius: 15px;
-            border: 1px solid #3d3d3d;
-            margin: 10px 0;
-        }
-        
-        .chart-title {
-            color: #ffffff !important;
-            font-size: 1.2rem !important;
-            font-weight: 600 !important;
-            margin-bottom: 15px !important;
-            padding-bottom: 10px !important;
-            border-bottom: 2px solid #667eea !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-        
-        st.header("📊 Analysis Dashboard")
-        
-        if not st.session_state.current_analysis:
-            st.info("👈 Run an analysis first to see the dashboard!")
-        else:
-            analysis = st.session_state.current_analysis
-            
-            if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                score_data = analysis['result']
-                
-                st.markdown("### 🎯 Key Metrics")
-                col1, col2, col3, col4 = st.columns(4)
-                
-                with col1:
-                    score = score_data.get('overall_score', 0)
-                    if score >= 70:
-                        score_class = "score-high"
-                    elif score >= 40:
-                        score_class = "score-medium"
-                    else:
-                        score_class = "score-low"
-                    
-                    st.markdown(f"""
-                    <div class="dashboard-metric">
-                        <div class="metric-title">📊 Overall Score</div>
-                        <div class="metric-value {score_class}">{score}%</div>
-                        <div class="metric-subtitle">ATS Compatibility</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col2:
-                    prediction = score_data.get('prediction', {})
-                    pass_ats = prediction.get('pass_ats', False)
-                    status_class = "status-pass" if pass_ats else "status-fail"
-                    status_text = "PASS ✅" if pass_ats else "FAIL ❌"
-                    
-                    st.markdown(f"""
-                    <div class="dashboard-metric">
-                        <div class="metric-title">🤖 ATS Status</div>
-                        <div class="metric-value {status_class}" style="font-size: 2.5rem;">{status_text}</div>
-                        <div class="metric-subtitle">Screening Result</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col3:
-                    interview_chance = prediction.get('interview_probability', 'N/A')
-                    if interview_chance == "High":
-                        chance_color = "score-high"
-                    elif interview_chance == "Medium":
-                        chance_color = "score-medium"
-                    else:
-                        chance_color = "score-low"
-                    
-                    st.markdown(f"""
-                    <div class="dashboard-metric">
-                        <div class="metric-title">🎯 Interview Chance</div>
-                        <div class="metric-value {chance_color}" style="font-size: 2.2rem;">{interview_chance}</div>
-                        <div class="metric-subtitle">Probability</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                with col4:
-                    shortlist_time = prediction.get('shortlist_time', 'N/A')
-                    st.markdown(f"""
-                    <div class="dashboard-metric">
-                        <div class="metric-title">⏱️ Shortlist Time</div>
-                        <div class="metric-value" style="color: #667eea; font-size: 2rem;">{shortlist_time}</div>
-                        <div class="metric-subtitle">Estimated Timeline</div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                
-                st.markdown("---")
-                
-                col_viz1, col_viz2 = st.columns(2)
-                
-                with col_viz1:
-                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                    st.markdown('<div class="chart-title">📈 ATS Compatibility Score</div>', unsafe_allow_html=True)
-                    
-                    fig = go.Figure(go.Indicator(
-                        mode="gauge+number",
-                        value=score,
-                        number={'font': {'size': 60, 'color': 'white', 'family': 'Arial Black'}, 'suffix': "%"},
-                        gauge={
-                            'axis': {'range': [0, 100], 'tickcolor': "white", 'tickfont': {'color': 'white'}},
-                            'bar': {'color': '#00C853' if score >= 70 else '#FFD600' if score >= 40 else '#FF3D00', 'thickness': 0.3},
-                            'bgcolor': '#2d2d2d',
-                            'borderwidth': 2,
-                            'bordercolor': '#667eea',
-                            'steps': [
-                                {'range': [0, 40], 'color': 'rgba(255, 61, 0, 0.2)'},
-                                {'range': [40, 70], 'color': 'rgba(255, 214, 0, 0.2)'},
-                                {'range': [70, 100], 'color': 'rgba(0, 200, 83, 0.2)'}
-                            ]
-                        }
-                    ))
-                    
-                    fig.update_layout(height=350, paper_bgcolor='rgba(0,0,0,0)', font={'color': "white"})
-                    st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                with col_viz2:
-                    st.markdown('<div class="chart-container">', unsafe_allow_html=True)
-                    st.markdown('<div class="chart-title">📊 Skills Breakdown</div>', unsafe_allow_html=True)
-                    
-                    breakdown = score_data.get('breakdown', {})
-                    if breakdown:
-                        categories = [c.replace('_', ' ').title() for c in breakdown.keys()]
-                        values = list(breakdown.values())
-                        
-                        fig = go.Figure()
-                        fig.add_trace(go.Scatterpolar(
-                            r=values + [values[0]],
-                            theta=categories + [categories[0]],
-                            fill='toself',
-                            fillcolor='rgba(102, 126, 234, 0.3)',
-                            line=dict(color='#667eea', width=3)
-                        ))
-                        
-                        fig.update_layout(
-                            polar=dict(
-                                radialaxis=dict(visible=True, range=[0, 100], tickfont={'color': 'white'}),
-                                angularaxis=dict(tickfont={'color': 'white'})
-                            ),
-                            showlegend=False,
-                            height=350,
-                            paper_bgcolor='rgba(0,0,0,0)'
-                        )
-                        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
-                    
-                    st.markdown('</div>', unsafe_allow_html=True)
-                
-                st.markdown("---")
-                st.markdown("### 🔑 Keyword Analysis")
-                
-                keywords = score_data.get('keywords', {})
-                col_kw1, col_kw2 = st.columns(2)
-                
-                with col_kw1:
-                    if keywords.get('matched'):
-                        st.markdown("#### ✅ Matching Keywords")
-                        for kw in keywords['matched'][:8]:
-                            st.markdown(f"- **{kw}**")
-                    else:
-                        st.info("No matching keywords found")
-                
-                with col_kw2:
-                    if keywords.get('missing'):
-                        st.markdown("#### ❌ Missing Keywords")
-                        for kw in keywords['missing'][:8]:
-                            st.markdown(f"- **{kw}**")
-                    else:
-                        st.info("No missing keywords found")
-            
-            # This is the ONLY else statement needed
-            else:
-                st.info("📊 Dashboard available only for ATS Score analysis. Run an ATS Score analysis first.")
-        
-        # End of the with tab3 block
-
-    # ============ TAB 4: VISUALIZE ============
-    with tab4:
-        st.header("📈 Advanced Visualizations")
-        
-        if st.session_state.analysis_history:
-            scores = []
-            dates = []
-            
-            for analysis in st.session_state.analysis_history:
-                if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                    score = analysis['result'].get('overall_score', 0)
-                    scores.append(score)
-                    dates.append(analysis['timestamp'])
-            
-            if scores:
-                df = pd.DataFrame({'Date': dates, 'Score': scores})
-                fig = px.line(df, x='Date', y='Score', title='📈 Your ATS Score Progress', markers=True)
-                fig.update_layout(yaxis_range=[0, 100])
-                st.plotly_chart(fig, use_container_width=True)
-                
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Average Score", f"{sum(scores)/len(scores):.1f}%")
-                with col2:
-                    st.metric("Best Score", f"{max(scores)}%")
-                with col3:
-                    st.metric("Lowest Score", f"{min(scores)}%")
-                with col4:
-                    st.metric("Total Analyses", len(scores))
-            else:
-                st.info("No ATS Score analyses found in history.")
-        else:
-            st.info("No analysis history yet. Run some analyses first!")
-
-    # ============ TAB 5: HISTORY ============
-    with tab5:
-        st.header("📚 Analysis History")
-        
-        if st.session_state.analysis_history:
-            for idx, analysis in enumerate(reversed(st.session_state.analysis_history)):
-                with st.expander(f"Analysis #{len(st.session_state.analysis_history)-idx} - {analysis['timestamp']}", expanded=False):
-                    col1, col2 = st.columns([3, 1])
-                    with col1:
-                        st.write(f"**Type:** {analysis['type'].title()}")
-                        st.write(f"**File:** {analysis['filename']}")
-                        st.write(f"**Model:** {analysis['model']}")
-                    with col2:
-                        if analysis['type'] == "ats_score" and isinstance(analysis['result'], dict):
-                            score = analysis['result'].get('overall_score', 0)
-                            st.metric("Score", f"{score}%")
-                    
-                    if st.button("📋 Load Analysis", key=f"load_{idx}"):
-                        st.session_state.current_analysis = analysis
-                        st.rerun()
-        else:
-            st.info("No analysis history yet. Your first analysis will appear here!")
-
-    # ============ FOOTER ============
     st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; color: #666; padding: 2rem;">
-        <p>🚀 <strong>ATS Resume Analyzer PRO</strong> • Made with ❤️ using Streamlit & Groq AI</p>
-        <p style="font-size: 0.9rem;">Disclaimer: AI analysis is for guidance only. Always verify with human review.</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.markdown("**AI Model**")
+    selected_model_label = st.selectbox(
+        "Choose model:",
+        list(AVAILABLE_MODELS.keys()),
+        label_visibility="collapsed",
+    )
+    model_id = AVAILABLE_MODELS[selected_model_label]
 
-# ============ RUN THE APP ============
-if __name__ == "__main__":
-    main()
+    st.markdown("---")
+    if st.button("Clear current session", use_container_width=True):
+        st.session_state.resume_text = ""
+        st.session_state.resume_filename = ""
+        st.session_state.job_desc = ""
+        st.session_state.current_result = None
+        st.session_state.current_analysis_type = None
+        st.rerun()
+
+
+# ============ MASTHEAD ============
+render_masthead(
+    eyebrow="AI-Powered Resume Intelligence",
+    title="ATS Resume Analyser",
+    subtitle="Upload your resume, paste a job description, and get an ATS-grade read on where you stand.",
+)
+
+user = get_current_user()
+user_id = get_current_user_id()
+
+tab_labels = ["Upload", "Analyze", "Dashboard", "History"]
+if st.session_state.get("is_admin"):
+    tab_labels.append("Admin")
+
+tabs = st.tabs(tab_labels)
+tab_upload, tab_analyze, tab_dashboard, tab_history = tabs[:4]
+tab_admin = tabs[4] if len(tabs) == 5 else None
+
+
+# ============ TAB: UPLOAD ============
+with tab_upload:
+    col_main, col_help = st.columns([2, 1])
+
+    with col_main:
+        st.markdown("### Upload Resume")
+        uploaded_file = st.file_uploader(
+            "Choose your resume (PDF):", type=["pdf"], label_visibility="collapsed"
+        )
+
+        if uploaded_file:
+            file_bytes = uploaded_file.getvalue()
+            stats = get_file_stats(file_bytes, uploaded_file.name)
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                render_stat_card("File", stats["filename"][:20])
+            with c2:
+                render_stat_card("Size", f"{stats['size_mb']} MB")
+            with c3:
+                render_stat_card("Pages", str(stats["pages"] or "N/A"))
+
+            with st.spinner("Extracting text..."):
+                extracted = extract_text_from_pdf(file_bytes, uploaded_file.name)
+
+            if not extracted:
+                st.error(
+                    "Could not extract text from this PDF. Make sure it's a "
+                    "text-based PDF (not a scanned image) and isn't password-protected."
+                )
+            else:
+                st.session_state.resume_text = extracted
+                st.session_state.resume_filename = uploaded_file.name
+                with st.expander("Preview extracted text"):
+                    st.text_area(
+                        "extracted_preview",
+                        extracted[:1500] + ("..." if len(extracted) > 1500 else ""),
+                        height=250,
+                        label_visibility="collapsed",
+                    )
+
+        st.markdown("### Job Description")
+        job_desc = st.text_area(
+            "Paste the job description:",
+            height=220,
+            value=st.session_state.job_desc,
+            placeholder="Paste the full job posting here -- include requirements and responsibilities for best results.",
+            label_visibility="collapsed",
+        )
+        st.session_state.job_desc = job_desc
+        if job_desc:
+            st.caption(f"{len(job_desc.split())} words")
+
+    with col_help:
+        st.markdown("### Ready Check")
+        render_stat_card(
+            "Resume", "✓" if st.session_state.resume_text else "—",
+            "Uploaded" if st.session_state.resume_text else "Required",
+            tone="success" if st.session_state.resume_text else "default",
+        )
+        st.write("")
+        render_stat_card(
+            "Job Description", "✓" if st.session_state.job_desc else "—",
+            "Added" if st.session_state.job_desc else "Required",
+            tone="success" if st.session_state.job_desc else "default",
+        )
+        st.write("")
+        st.info(
+            "Once both are ready, head to the **Analyze** tab and pick "
+            "a mode: ATS Score, Keyword Gap, Detailed Report, or Cover Letter."
+        )
+
+
+# ============ TAB: ANALYZE ============
+with tab_analyze:
+    ready = bool(st.session_state.resume_text) and bool(st.session_state.job_desc)
+
+    if not ready:
+        st.warning("Upload a resume and paste a job description in the **Upload** tab first.")
+    else:
+        st.markdown("### Choose Analysis Type")
+        c1, c2, c3, c4 = st.columns(4)
+        mode_clicked = None
+        with c1:
+            if st.button("ATS Score", use_container_width=True):
+                mode_clicked = "ats_score"
+        with c2:
+            if st.button("Keyword Gap", use_container_width=True):
+                mode_clicked = "keyword_gap"
+        with c3:
+            if st.button("Detailed Report", use_container_width=True):
+                mode_clicked = "detailed"
+        with c4:
+            if st.button("Cover Letter", use_container_width=True):
+                mode_clicked = "cover_letter"
+
+        result_area = st.empty()
+
+        if mode_clicked:
+            with result_area.container():
+                st.markdown(f"Running **{mode_clicked.replace('_', ' ').title()}** with {selected_model_label}...")
+                render_skeleton_loader()
+
+            result = run_analysis(
+                model_id, mode_clicked,
+                st.session_state.job_desc, st.session_state.resume_text,
+            )
+
+            log_api_usage(
+                user_id=user_id,
+                endpoint=mode_clicked,
+                tokens_used=result.get("tokens_used", 0),
+                latency_ms=result.get("latency_ms", 0),
+                success=result.get("success", False),
+            )
+
+            if result["success"]:
+                st.session_state.current_result = result
+                st.session_state.current_analysis_type = mode_clicked
+
+                overall_score = None
+                if isinstance(result["data"], dict):
+                    overall_score = result["data"].get("overall_score")
+
+                ok, msg = save_analysis(
+                    user_id=user_id,
+                    analysis_type=mode_clicked,
+                    model_used=model_id,
+                    job_description=st.session_state.job_desc,
+                    resume_filename=st.session_state.resume_filename,
+                    result_json=result["data"] if isinstance(result["data"], dict) else {"text": result["data"]},
+                    overall_score=overall_score,
+                )
+                if ok:
+                    get_user_history.clear()
+                else:
+                    st.warning(f"Analysis succeeded but couldn't be saved to history: {msg}")
+
+                result_area.empty()
+            else:
+                result_area.empty()
+                st.error(result["error"])
+                if "raw_fallback" in result:
+                    with st.expander("Show raw model output"):
+                        st.code(result["raw_fallback"])
+
+        # ---- Render whatever the current result is (from this run or a loaded one) ----
+        if st.session_state.current_result and st.session_state.current_result.get("success"):
+            data = st.session_state.current_result["data"]
+            a_type = st.session_state.current_analysis_type
+
+            st.markdown("---")
+            st.markdown(f"### Results — {a_type.replace('_', ' ').title()}")
+
+            if a_type == "ats_score" and isinstance(data, dict):
+                col_gauge, col_meta = st.columns([2, 1])
+                with col_gauge:
+                    st.plotly_chart(
+                        create_gauge_chart(data.get("overall_score", 0), "Overall ATS Score"),
+                        use_container_width=False,
+                    )
+                with col_meta:
+                    pred = data.get("prediction", {})
+                    render_stat_card(
+                        "ATS Status", "PASS" if pred.get("pass_ats") else "FAIL",
+                        pred.get("interview_probability", ""),
+                        tone="success" if pred.get("pass_ats") else "danger",
+                    )
+                    st.write("")
+                    render_stat_card("Shortlist Time", pred.get("shortlist_time", "N/A"))
+
+                breakdown = data.get("breakdown", {})
+                if breakdown:
+                    st.plotly_chart(
+                        create_radar_chart(breakdown, "Score Breakdown"),
+                        use_container_width=True,
+                    )
+
+                kw = data.get("keywords", {})
+                col_m, col_x = st.columns(2)
+                with col_m:
+                    st.markdown("**Matching Keywords**")
+                    for k in kw.get("matched", []):
+                        st.markdown(f"- {k}")
+                with col_x:
+                    st.markdown("**Missing Keywords**")
+                    for k in kw.get("missing", []):
+                        st.markdown(f"- {k}")
+
+                improvements = data.get("improvements", [])
+                if improvements:
+                    st.markdown("**Improvement Suggestions**")
+                    for i, imp in enumerate(improvements, 1):
+                        st.markdown(f"{i}. {imp}")
+
+            elif a_type == "keyword_gap" and isinstance(data, dict):
+                col_m, col_x = st.columns(2)
+                with col_m:
+                    st.markdown("**Matched Keywords**")
+                    for k in data.get("matched_keywords", []):
+                        st.markdown(f"- {k}")
+                with col_x:
+                    st.markdown("**Missing Keywords**")
+                    for k in data.get("missing_keywords", []):
+                        st.markdown(f"- {k}")
+                suggestions = data.get("suggestions", [])
+                if suggestions:
+                    st.markdown("**Suggestions**")
+                    for s in suggestions:
+                        st.markdown(f"- {s}")
+
+            else:  # detailed / cover_letter -- plain markdown text
+                st.markdown(data)
+
+            st.download_button(
+                "Download this result",
+                data=data if isinstance(data, str) else str(data),
+                file_name=f"ats_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+            )
+
+
+# ============ TAB: DASHBOARD ============
+with tab_dashboard:
+    if not (
+        st.session_state.current_result
+        and st.session_state.current_result.get("success")
+        and st.session_state.current_analysis_type == "ats_score"
+    ):
+        st.info("Run an **ATS Score** analysis first to see the dashboard.")
+    else:
+        data = st.session_state.current_result["data"]
+        score = data.get("overall_score", 0)
+        pred = data.get("prediction", {})
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            render_stat_card("Overall Score", f"{score}%", "ATS Compatibility", tone="accent")
+        with c2:
+            render_stat_card(
+                "ATS Status", "PASS" if pred.get("pass_ats") else "FAIL",
+                "Screening Result", tone="success" if pred.get("pass_ats") else "danger",
+            )
+        with c3:
+            render_stat_card("Interview Chance", pred.get("interview_probability", "N/A"), "Probability")
+        with c4:
+            render_stat_card("Shortlist Time", pred.get("shortlist_time", "N/A"), "Estimate")
+
+        st.markdown("---")
+        col_g, col_r = st.columns(2)
+        with col_g:
+            st.plotly_chart(create_gauge_chart(score, "Overall ATS Score"), use_container_width=False)
+        with col_r:
+            breakdown = data.get("breakdown", {})
+            if breakdown:
+                st.plotly_chart(create_radar_chart(breakdown, "Skills Breakdown"), use_container_width=True)
+
+
+# ============ TAB: HISTORY ============
+with tab_history:
+    st.markdown("### Your Analysis History")
+    history = get_user_history(user_id)
+
+    if not history:
+        st.info("No analyses yet. Run one from the **Analyze** tab and it'll show up here.")
+    else:
+        for row in history:
+            created = row.get("created_at", "")[:19].replace("T", " ")
+            label = f"{row.get('analysis_type', '').replace('_', ' ').title()} — {created}"
+            with st.expander(label):
+                col_a, col_b = st.columns([3, 1])
+                with col_a:
+                    st.write(f"**File:** {row.get('resume_filename', 'N/A')}")
+                    st.write(f"**Model:** {row.get('model_used', 'N/A')}")
+                with col_b:
+                    if row.get("overall_score") is not None:
+                        render_stat_card("Score", f"{row['overall_score']}%")
+
+                if st.button("Load into Analyze tab", key=f"load_{row['id']}"):
+                    st.session_state.current_result = {"success": True, "data": row["result_json"]}
+                    st.session_state.current_analysis_type = row["analysis_type"]
+                    st.rerun()
+
+
+# ============ TAB: ADMIN ============
+if tab_admin is not None:
+    with tab_admin:
+        st.markdown("### Admin Dashboard")
+        metrics = admin_get_summary_metrics()
+
+        c1, c2, c3, c4 = st.columns(4)
+        with c1:
+            render_stat_card("Total Users", str(metrics["total_users"]), tone="accent")
+        with c2:
+            render_stat_card("Total Analyses", str(metrics["total_analyses"]))
+        with c3:
+            render_stat_card("Total API Calls", str(metrics["total_api_calls"]))
+        with c4:
+            render_stat_card("Logins (7d)", str(metrics["recent_logins_7d"]))
+
+        st.markdown("---")
+        st.markdown("#### Analysis Type Breakdown")
+        breakdown = admin_get_analysis_type_breakdown()
+        if breakdown:
+            cols = st.columns(len(breakdown))
+            for col, (k, v) in zip(cols, breakdown.items()):
+                with col:
+                    render_stat_card(k.replace("_", " ").title(), str(v))
+        else:
+            st.info("No analyses recorded yet.")
+
+        st.markdown("---")
+        st.markdown("#### Recent Users")
+        recent_users = admin_get_recent_users()
+        for u in recent_users:
+            admin_badge = " 🛡️" if u.get("is_admin") else ""
+            st.markdown(
+                f"- **{u.get('full_name', 'N/A')}**{admin_badge} — {u.get('email')} "
+                f"— joined {str(u.get('created_at', ''))[:10]}"
+            )
+
+
+# ============ FOOTER ============
+st.markdown("---")
+st.caption(
+    "ATS Resume Analyser PRO · AI analysis is for guidance only — always verify with human review."
+)

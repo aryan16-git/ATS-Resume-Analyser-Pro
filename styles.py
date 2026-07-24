@@ -59,6 +59,9 @@ def inject_custom_css():
         background-color: var(--bg);
         color: var(--text);
     }}
+    .block-container {{
+        padding-top: 2rem !important;
+    }}
 
     html, body, [class*="css"] {{
         font-family: 'Inter', -apple-system, sans-serif;
@@ -128,6 +131,7 @@ def inject_custom_css():
         font-weight: 500 !important;
         font-size: 0.9rem !important;
         letter-spacing: 0.01em;
+        white-space: nowrap !important;
         transition: background-color 0.15s ease, color 0.15s ease !important;
         box-shadow: none !important;
     }}
@@ -245,6 +249,103 @@ def inject_custom_css():
         animation: shimmer 1.4s infinite linear;
     }}
 
+    /* ===== TOP TOOLBAR: this is Streamlit's built-in Deploy/menu bar.
+       We deploy via git push to Streamlit Cloud, not this button, so
+       it serves no purpose here. Streamlit renamed this element's
+       test-id across versions (stToolbar -> stAppDeployButton in
+       1.38), so we match both rather than relying on one. IMPORTANT:
+       the sidebar's own open/close control is a DIFFERENT element and
+       is NOT touched by this rule. ===== */
+    header[data-testid="stHeader"] {{
+        background-color: var(--bg) !important;
+    }}
+    [data-testid="stToolbar"],
+    [data-testid="stAppDeployButton"],
+    [data-testid="stStatusWidget"] {{
+        display: none !important;
+    }}
+    [data-testid="stDecoration"] {{
+        background-image: none !important;
+        background-color: var(--accent) !important;
+    }}
+
+    /* ===== SIDEBAR OPEN/CLOSE CONTROL ===== */
+    /* Streamlit's native collapse control is hidden entirely -- see
+       app.py, which drives sidebar visibility with a custom toggle
+       button instead, since the native control's internal test-ids
+       and behavior proved unreliable to restyle across versions. */
+
+    /* ===== SELECT BOXES (model picker, etc.) ===== */
+    div[data-baseweb="select"] {{
+        background-color: var(--surface) !important;
+    }}
+    div[data-baseweb="select"] div {{
+        background-color: var(--surface) !important;
+        color: var(--text) !important;
+        border-color: var(--border) !important;
+    }}
+    div[data-baseweb="select"] svg {{
+        fill: var(--text) !important;
+    }}
+    /* The dropdown menu is portaled to <body>, outside .stApp. Its
+       exact internal nesting (menu/list/option) varies by Streamlit
+       version, so instead of guessing the structure we recolor
+       everything inside the popover wholesale, then restyle text and
+       hover state on top. */
+    div[data-baseweb="popover"] * {{
+        background-color: var(--surface) !important;
+    }}
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="popover"] [role="option"] {{
+        color: var(--text) !important;
+    }}
+    div[data-baseweb="popover"] li:hover,
+    div[data-baseweb="popover"] [role="option"]:hover,
+    div[data-baseweb="popover"] [aria-selected="true"] {{
+        background-color: var(--surface-alt) !important;
+    }}
+
+    /* ===== DOWNLOAD BUTTON (separate widget class from st.button) ===== */
+    .stDownloadButton > button {{
+        background-color: transparent !important;
+        color: var(--accent) !important;
+        border: 1px solid var(--accent) !important;
+        border-radius: 3px !important;
+        font-weight: 500 !important;
+        box-shadow: none !important;
+    }}
+    .stDownloadButton > button:hover {{
+        background-color: var(--accent) !important;
+        color: var(--bg) !important;
+    }}
+    .stDownloadButton > button p {{
+        color: inherit !important;
+    }}
+
+    /* ===== PASSWORD INPUT: the native "Press Enter to submit" hint
+       overlaps the eye-toggle icon no matter how it's colored -- it's
+       a positioning collision, not a contrast issue. Hide the hint
+       entirely; the form still submits on Enter regardless. ===== */
+    .stTextInput input[type="password"] {{
+        padding-right: 2.75rem !important;
+    }}
+    [data-testid="InputInstructions"] {{
+        display: none !important;
+    }}
+
+    /* ===== SIDEBAR: keep it above chart canvases when collapsing/expanding ===== */
+    section[data-testid="stSidebar"] {{
+        z-index: 999 !important;
+    }}
+
+    /* ===== STAT CARD VALUE: long filenames truncate cleanly instead of
+       clipping mid-character ===== */
+    .stat-card .stat-value {{
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }}
+
     /* Hide Streamlit chrome we don't want */
     #MainMenu {{visibility: hidden;}}
     footer {{visibility: hidden;}}
@@ -319,6 +420,8 @@ def create_gauge_chart(score: int, title: str = "ATS Score") -> go.Figure:
     ))
     fig.update_layout(
         height=280,
+        width=420,
+        autosize=False,
         margin=dict(l=30, r=30, t=60, b=20),
         paper_bgcolor="rgba(0,0,0,0)",
         font={"color": COLORS["text"]},
