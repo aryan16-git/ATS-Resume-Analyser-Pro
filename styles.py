@@ -11,8 +11,11 @@ Design language:
 - Plenty of negative space; no boxed-in cards for every single element.
 """
 
+import re
+
 import streamlit as st
 import plotly.graph_objects as go
+from fpdf import FPDF
 
 
 # ============ DESIGN TOKENS ============
@@ -427,6 +430,257 @@ def create_gauge_chart(score: int, title: str = "ATS Score") -> go.Figure:
         font={"color": COLORS["text"]},
     )
     return fig
+
+
+import unicodedata
+
+
+def _pdf_safe(text) -> str:
+    """
+    FPDF's core fonts (Helvetica) only support latin-1. Model output
+    commonly contains Unicode punctuation and spacing latin-1 can't
+    represent -- em/en dashes, smart quotes, bullets, and various
+    "typographic" space characters (narrow no-break space, thin space,
+    etc. -- there are ~20 of these, not just the common nbsp).
+
+    Rather than hardcode every individual character (which will always
+    miss the next one the model uses), we handle known punctuation
+    explicitly for correctness, then classify anything else by Unicode
+    category: space-separator chars become a regular space, invisible
+    format/combining marks are dropped silently, and only genuinely
+    unrepresentable characters (e.g. CJK) fall back to '?'.
+    """
+    replacements = {
+        "\u2013": "-", "\u2014": "-", "\u2011": "-", "\u2010": "-",
+        "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
+        "\u2022": "-", "\u2026": "...", "\u2192": "->",
+        "\u2265": ">=", "\u2264": "<=", "\u2260": "!=", "\u00b1": "+/-",
+        "\u2248": "~", "\u223c": "~", "\uff5e": "~",
+    }
+    s = str(text)
+    for bad, good in replacements.items():
+        s = s.replace(bad, good)
+
+    cleaned_chars = []
+    for ch in s:
+        if ord(ch) < 256:
+            cleaned_chars.append(ch)
+            continue
+        category = unicodedata.category(ch)
+        if category == "Zs":  # any Unicode space separator variant
+            cleaned_chars.append(" ")
+        elif category in ("Cf", "Mn"):  # zero-width/format/combining marks
+            continue
+        else:
+            cleaned_chars.append(ch)  # let latin-1 encode below decide
+    s = "".join(cleaned_chars)
+
+    return s.encode("latin-1", "replace").decode("latin-1")
+
+
+def _strip_md_inline(text: str) -> str:
+    """Remove inline markdown markup (bold/italic/code) and return plain text."""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
+    text = re.sub(r"`(.+?)`", r"\1", text)
+    return text.strip()
+
+
+def _render_md_table(pdf: FPDF, table_lines: list):
+    """
+    Render a markdown pipe-table as an actual bordered grid with proper
+    text wrapping -- NOT truncation. An earlier version cut long cell
+    text off mid-word past a fixed character count, silently losing
+    content. This version measures wrapped line count per cell first
+    (dry run), pads shorter cells with blank lines so every cell in a
+    row shares the same box height, then draws the row for real.
+    """
+    rows = []
+    for line in table_lines:
+        line = line.strip().strip("|")
+        cells = [c.strip() for c in line.split("|")]
+        if all(set(c) <= set("-: ") for c in cells if c) and any(c for c in cells):
+            continue  # skip the "---|---|---" separator row
+        rows.append(cells)
+    if not rows:
+        return
+
+    num_cols = max(len(r) for r in rows)
+    page_width = pdf.w - pdf.l_margin - pdf.r_margin
+    col_width = page_width / num_cols
+    line_h = 5
+
+    def draw_row(cells, bold: bool):
+        cells = cells + [""] * (num_cols - len(cells))
+        pdf.set_font("Helvetica", "B" if bold else "", 8.5)
+        wrapped = []
+        for c in cells:
+            text = _pdf_safe(_strip_md_inline(c))
+            lines = pdf.multi_cell(col_width, line_h, text, dry_run=True, output="LINES")
+            wrapped.append(lines if lines else [""])
+        max_lines = max(len(w) for w in wrapped)
+
+        # Page-break check: if this row won't fit, start a fresh page
+        # first, so a single row never gets split awkwardly across pages.
+        if pdf.get_y() + max_lines * line_h > pdf.page_break_trigger:
+            pdf.add_page()
+
+        x0, y0 = pdf.get_x(), pdf.get_y()
+        for i, lines in enumerate(wrapped):
+            padded = lines + [""] * (max_lines - len(lines))
+            pdf.set_xy(x0 + i * col_width, y0)
+            pdf.multi_cell(col_width, line_h, "\n".join(padded), border=1)
+        pdf.set_xy(x0, y0 + max_lines * line_h)
+
+    draw_row(rows[0], bold=True)
+    for row in rows[1:]:
+        draw_row(row, bold=False)
+    pdf.ln(3)
+
+
+def _render_markdown_text(pdf: FPDF, text: str):
+    """
+    Renders markdown as an actually-formatted PDF section instead of
+    dumping raw '**bold**' / '# heading' / '| table |' syntax onto the
+    page. Handles headers, bold-only lines, horizontal rules, pipe
+    tables, and plain paragraphs. Not a full markdown engine -- covers
+    what our own analyzer prompts actually produce.
+    """
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        raw_line = lines[i]
+        stripped = raw_line.strip()
+
+        if not stripped:
+            pdf.ln(2)
+            i += 1
+            continue
+
+        # Horizontal rule: a line of only dashes
+        if len(stripped) >= 3 and set(stripped) <= {"-"}:
+            y = pdf.get_y()
+            pdf.set_draw_color(210, 210, 210)
+            pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
+            pdf.ln(4)
+            i += 1
+            continue
+
+        # Markdown table block -- consume all consecutive "| ... |" lines
+        if stripped.startswith("|"):
+            table_lines = []
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                table_lines.append(lines[i])
+                i += 1
+            _render_md_table(pdf, table_lines)
+            continue
+
+        # Headers: #, ##, ###
+        heading_match = re.match(r"^(#{1,6})\s+(.*)", stripped)
+        if heading_match:
+            level = len(heading_match.group(1))
+            heading_text = _strip_md_inline(heading_match.group(2))
+            size = {1: 15, 2: 13, 3: 12}.get(level, 11)
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", size)
+            pdf.set_text_color(20, 20, 20)
+            pdf.multi_cell(0, 7, _pdf_safe(heading_text), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(1)
+            i += 1
+            continue
+
+        # Bullet list item
+        bullet_match = re.match(r"^[-*]\s+(.*)", stripped)
+        if bullet_match:
+            item_text = _strip_md_inline(bullet_match.group(1))
+            pdf.set_font("Helvetica", "", 10.5)
+            pdf.set_text_color(20, 20, 20)
+            pdf.multi_cell(0, 6, _pdf_safe("-  " + item_text), new_x="LMARGIN", new_y="NEXT")
+            i += 1
+            continue
+
+        # Blockquote line
+        quote_match = re.match(r"^>\s?(.*)", stripped)
+        if quote_match:
+            quote_text = _strip_md_inline(quote_match.group(1))
+            pdf.set_font("Helvetica", "I", 10.5)
+            pdf.set_text_color(80, 80, 80)
+            pdf.multi_cell(0, 6, _pdf_safe("    " + quote_text), new_x="LMARGIN", new_y="NEXT")
+            i += 1
+            continue
+
+        # Whole-line bold (commonly used for names/labels)
+        is_whole_bold = bool(re.match(r"^\*\*(.+)\*\*$", stripped))
+        clean_text = _strip_md_inline(stripped)
+        pdf.set_font("Helvetica", "B" if is_whole_bold else "", 10.5)
+        pdf.set_text_color(20, 20, 20)
+        pdf.multi_cell(0, 6, _pdf_safe(clean_text), new_x="LMARGIN", new_y="NEXT")
+        i += 1
+
+
+def _pdf_write_value(pdf: FPDF, value, indent: int = 0):
+    pad = "    " * indent
+    if isinstance(value, dict):
+        for k, v in value.items():
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.multi_cell(0, 6, _pdf_safe(pad + k.replace("_", " ").title() + ":"), new_x="LMARGIN", new_y="NEXT")
+            _pdf_write_value(pdf, v, indent + 1)
+    elif isinstance(value, list):
+        pdf.set_font("Helvetica", "", 11)
+        for item in value:
+            pdf.multi_cell(0, 6, _pdf_safe(pad + "- " + _strip_md_inline(str(item))), new_x="LMARGIN", new_y="NEXT")
+    else:
+        pdf.set_font("Helvetica", "", 11)
+        pdf.multi_cell(0, 6, _pdf_safe(pad + _strip_md_inline(str(value))), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(1)
+
+
+def build_pdf_report(analysis_type: str, model_used: str, data) -> bytes:
+    """
+    Builds a branded PDF from an analysis result. `data` is either the
+    dict returned for ats_score/keyword_gap modes, or the plain markdown
+    string returned for detailed/cover_letter modes.
+
+    Uses multi_cell exclusively (never cell(w=0, ...)) -- fpdf2's
+    zero-width cell() combined with the deprecated ln=True does not
+    reliably reset the cursor to the left margin, which causes
+    "not enough horizontal space" crashes on the line after. multi_cell
+    always resets correctly, so we use it even for single-line text.
+    """
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 20)
+    pdf.multi_cell(0, 12, _pdf_safe("ATSight"), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(60, 60, 60)
+    pdf.multi_cell(0, 8, _pdf_safe(analysis_type.replace("_", " ").title() + " Report"), new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(130, 130, 130)
+    pdf.multi_cell(0, 6, _pdf_safe(f"Model: {model_used}"), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(2)
+
+    pdf.set_draw_color(210, 210, 210)
+    y = pdf.get_y()
+    pdf.line(10, y, 200, y)
+    pdf.ln(6)
+
+    pdf.set_text_color(20, 20, 20)
+    if isinstance(data, dict):
+        _pdf_write_value(pdf, data)
+    else:
+        _render_markdown_text(pdf, str(data))
+
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.multi_cell(0, 5, _pdf_safe("Generated by ATSight. AI analysis is for guidance only -- always verify with human review."), new_x="LMARGIN", new_y="NEXT")
+
+    return bytes(pdf.output())
 
 
 def create_radar_chart(scores_dict: dict, title: str = "Breakdown") -> go.Figure:

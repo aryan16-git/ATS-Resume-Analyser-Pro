@@ -42,12 +42,13 @@ from styles import (
     render_skeleton_loader,
     create_gauge_chart,
     create_radar_chart,
+    build_pdf_report,
 )
 
 
 # ============ PAGE CONFIG ============
 st.set_page_config(
-    page_title="ATS Resume Analyser PRO",
+    page_title="ATSight",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -60,7 +61,7 @@ init_auth_session_state()
 if not is_logged_in():
     render_masthead(
         eyebrow="AI-Powered Resume Intelligence",
-        title="ATS Resume Analyser",
+        title="ATSight",
         subtitle="See exactly how your resume reads to an applicant tracking system before a recruiter ever does.",
     )
     render_auth_page()
@@ -137,7 +138,7 @@ with st.sidebar:
 # ============ MASTHEAD ============
 render_masthead(
     eyebrow="AI-Powered Resume Intelligence",
-    title="ATS Resume Analyser",
+    title="ATSight",
     subtitle="Upload your resume, paste a job description, and get an ATS-grade read on where you stand.",
 )
 
@@ -367,11 +368,12 @@ with tab_analyze:
             else:  # detailed / cover_letter -- plain markdown text
                 st.markdown(data)
 
+            pdf_bytes = build_pdf_report(a_type, model_id, data)
             st.download_button(
-                "Download this result",
-                data=data if isinstance(data, str) else str(data),
-                file_name=f"ats_result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                mime="text/plain",
+                "Download this result (PDF)",
+                data=pdf_bytes,
+                file_name=f"atsight_{a_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf",
+                mime="application/pdf",
             )
 
 
@@ -478,5 +480,5 @@ if tab_admin is not None:
 # ============ FOOTER ============
 st.markdown("---")
 st.caption(
-    "ATS Resume Analyser PRO · AI analysis is for guidance only — always verify with human review."
+    "ATSight · AI analysis is for guidance only — always verify with human review."
 )

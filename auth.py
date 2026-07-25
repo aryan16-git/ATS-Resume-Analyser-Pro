@@ -156,7 +156,7 @@ def render_auth_page():
     Call this from app.py when `not is_logged_in()`, and `return` right
     after so the rest of the app never renders for logged-out users.
     """
-    st.markdown("## 🔐 Welcome to ATS Resume Analyser")
+    st.markdown("## 🔐 Welcome to ATSight")
     st.caption("Sign in to analyse your resume and track your history.")
 
     tab_login, tab_register = st.tabs(["Log In", "Register"])
