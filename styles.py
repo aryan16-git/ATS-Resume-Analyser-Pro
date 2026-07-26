@@ -453,7 +453,7 @@ def _pdf_safe(text) -> str:
     replacements = {
         "\u2013": "-", "\u2014": "-", "\u2011": "-", "\u2010": "-",
         "\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"',
-        "\u2022": "-", "\u2026": "...", "\u2192": "->",
+        "\u2022": " | ", "\u2026": "...", "\u2192": "->",
         "\u2265": ">=", "\u2264": "<=", "\u2260": "!=", "\u00b1": "+/-",
         "\u2248": "~", "\u223c": "~", "\uff5e": "~",
     }
@@ -539,16 +539,45 @@ def _render_md_table(pdf: FPDF, table_lines: list):
     pdf.ln(3)
 
 
+def _fix_runon_contact_line(text: str) -> str:
+    """
+    Safety net for cover letters: even with explicit prompt instructions,
+    a model can occasionally still cram name/location/phone/email/links
+    onto one dash-separated line. If a line contains an email address AND
+    3+ " - " separators, it's almost certainly a mis-formatted contact
+    block -- split it onto separate lines rather than showing it as one
+    unreadable run-on sentence.
+    """
+    lines = text.split("\n")
+    fixed = []
+    for line in lines:
+        has_email = bool(re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", line))
+        dash_count = line.count(" - ")
+        if has_email and dash_count >= 2:
+            parts = [p.strip() for p in line.split(" - ") if p.strip()]
+            fixed.extend(parts)
+        else:
+            fixed.append(line)
+    return "\n".join(fixed)
+
+
 def _render_markdown_text(pdf: FPDF, text: str):
     """
     Renders markdown as an actually-formatted PDF section instead of
     dumping raw '**bold**' / '# heading' / '| table |' syntax onto the
     page. Handles headers, bold-only lines, horizontal rules, pipe
-    tables, and plain paragraphs. Not a full markdown engine -- covers
-    what our own analyzer prompts actually produce.
+    tables, plain paragraphs, and a one-time "letterhead" treatment for
+    cover letters: the first bold line (the applicant's name) is sized
+    up, and a contact-info line immediately after it (email/links/
+    pipe-separated) is styled smaller and muted instead of both just
+    blending into the body text at equal weight.
     """
+    text = _fix_runon_contact_line(text)
     lines = text.split("\n")
     i = 0
+    is_first_content_line = True
+    prev_was_name_line = False
+
     while i < len(lines):
         raw_line = lines[i]
         stripped = raw_line.strip()
@@ -556,10 +585,14 @@ def _render_markdown_text(pdf: FPDF, text: str):
         if not stripped:
             pdf.ln(2)
             i += 1
-            continue
+            continue  # blank line doesn't cancel a pending "name -> contact" pairing
+
+        was_first_line = is_first_content_line
+        is_first_content_line = False
 
         # Horizontal rule: a line of only dashes
         if len(stripped) >= 3 and set(stripped) <= {"-"}:
+            prev_was_name_line = False
             y = pdf.get_y()
             pdf.set_draw_color(210, 210, 210)
             pdf.line(pdf.l_margin, y, pdf.w - pdf.r_margin, y)
@@ -569,6 +602,7 @@ def _render_markdown_text(pdf: FPDF, text: str):
 
         # Markdown table block -- consume all consecutive "| ... |" lines
         if stripped.startswith("|"):
+            prev_was_name_line = False
             table_lines = []
             while i < len(lines) and lines[i].strip().startswith("|"):
                 table_lines.append(lines[i])
@@ -579,6 +613,7 @@ def _render_markdown_text(pdf: FPDF, text: str):
         # Headers: #, ##, ###
         heading_match = re.match(r"^(#{1,6})\s+(.*)", stripped)
         if heading_match:
+            prev_was_name_line = False
             level = len(heading_match.group(1))
             heading_text = _strip_md_inline(heading_match.group(2))
             size = {1: 15, 2: 13, 3: 12}.get(level, 11)
@@ -591,8 +626,9 @@ def _render_markdown_text(pdf: FPDF, text: str):
             continue
 
         # Bullet list item
-        bullet_match = re.match(r"^[-*]\s+(.*)", stripped)
+        bullet_match = re.match(r"^[-*\u2022]\s+(.*)", stripped)
         if bullet_match:
+            prev_was_name_line = False
             item_text = _strip_md_inline(bullet_match.group(1))
             pdf.set_font("Helvetica", "", 10.5)
             pdf.set_text_color(20, 20, 20)
@@ -603,6 +639,7 @@ def _render_markdown_text(pdf: FPDF, text: str):
         # Blockquote line
         quote_match = re.match(r"^>\s?(.*)", stripped)
         if quote_match:
+            prev_was_name_line = False
             quote_text = _strip_md_inline(quote_match.group(1))
             pdf.set_font("Helvetica", "I", 10.5)
             pdf.set_text_color(80, 80, 80)
@@ -610,9 +647,37 @@ def _render_markdown_text(pdf: FPDF, text: str):
             i += 1
             continue
 
-        # Whole-line bold (commonly used for names/labels)
         is_whole_bold = bool(re.match(r"^\*\*(.+)\*\*$", stripped))
         clean_text = _strip_md_inline(stripped)
+
+        # First content line of the whole document, short enough to be a
+        # name (not a full sentence) -> treat as a letterhead name. Covers
+        # both "**Aryan Gupta**" and a plain unmarked "Aryan Gupta".
+        if was_first_line and len(clean_text) <= 60:
+            prev_was_name_line = True
+            pdf.set_font("Helvetica", "B", 15)
+            pdf.set_text_color(20, 20, 20)
+            pdf.multi_cell(0, 8, _pdf_safe(clean_text), new_x="LMARGIN", new_y="NEXT")
+            i += 1
+            continue
+
+        # Line right after the name that looks like contact info
+        looks_like_contact = bool(
+            re.search(r"[\w.+-]+@[\w-]+\.[\w.-]+", stripped)
+            or "linkedin.com" in stripped.lower()
+            or "github.com" in stripped.lower()
+            or stripped.count(" | ") >= 1
+        )
+        if prev_was_name_line and looks_like_contact:
+            prev_was_name_line = False
+            pdf.set_font("Helvetica", "", 9.5)
+            pdf.set_text_color(110, 110, 110)
+            pdf.multi_cell(0, 5, _pdf_safe(clean_text), new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(3)
+            i += 1
+            continue
+
+        prev_was_name_line = False
         pdf.set_font("Helvetica", "B" if is_whole_bold else "", 10.5)
         pdf.set_text_color(20, 20, 20)
         pdf.multi_cell(0, 6, _pdf_safe(clean_text), new_x="LMARGIN", new_y="NEXT")
@@ -670,7 +735,9 @@ def build_pdf_report(analysis_type: str, model_used: str, data) -> bytes:
     pdf.ln(6)
 
     pdf.set_text_color(20, 20, 20)
-    if isinstance(data, dict):
+    if analysis_type == "cover_letter" and isinstance(data, dict):
+        _render_cover_letter_pdf(pdf, data)
+    elif isinstance(data, dict):
         _pdf_write_value(pdf, data)
     else:
         _render_markdown_text(pdf, str(data))
@@ -681,6 +748,45 @@ def build_pdf_report(analysis_type: str, model_used: str, data) -> bytes:
     pdf.multi_cell(0, 5, _pdf_safe("Generated by ATSight. AI analysis is for guidance only -- always verify with human review."), new_x="LMARGIN", new_y="NEXT")
 
     return bytes(pdf.output())
+
+
+def _render_cover_letter_pdf(pdf: FPDF, data: dict):
+    """
+    Deterministic cover-letter layout built from structured fields
+    (candidate_name, location, phone, email, linkedin, github,
+    salutation, body_paragraphs, closing) instead of trusting the
+    model's own prose formatting for the header -- that's what caused
+    inconsistent, unprofessional-looking contact lines run to run.
+    """
+    name = _pdf_safe(data.get("candidate_name", ""))
+    contact_parts = [p for p in [
+        data.get("location", ""), data.get("phone", ""), data.get("email", ""),
+    ] if p]
+    link_parts = [p for p in [data.get("linkedin", ""), data.get("github", "")] if p]
+
+    pdf.set_font("Helvetica", "B", 13)
+    pdf.set_text_color(20, 20, 20)
+    pdf.multi_cell(0, 7, name, new_x="LMARGIN", new_y="NEXT")
+
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.set_text_color(100, 100, 100)
+    if contact_parts:
+        pdf.multi_cell(0, 5.5, _pdf_safe("  |  ".join(contact_parts)), new_x="LMARGIN", new_y="NEXT")
+    if link_parts:
+        pdf.multi_cell(0, 5.5, _pdf_safe("  |  ".join(link_parts)), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(5)
+
+    pdf.set_font("Helvetica", "", 11)
+    pdf.set_text_color(20, 20, 20)
+    pdf.multi_cell(0, 6, _pdf_safe(data.get("salutation", "")), new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+
+    for para in data.get("body_paragraphs", []):
+        pdf.multi_cell(0, 6, _pdf_safe(_strip_md_inline(str(para))), new_x="LMARGIN", new_y="NEXT")
+        pdf.ln(3)
+
+    pdf.multi_cell(0, 6, _pdf_safe(data.get("closing", "")), new_x="LMARGIN", new_y="NEXT")
+    pdf.multi_cell(0, 6, name, new_x="LMARGIN", new_y="NEXT")
 
 
 def create_radar_chart(scores_dict: dict, title: str = "Breakdown") -> go.Figure:
