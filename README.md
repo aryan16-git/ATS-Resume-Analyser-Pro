@@ -1,158 +1,139 @@
-# 🚀 ATS Resume Analyser PRO
+# ATSight
 
-<div align="center">
-  
-![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.28.0-red.svg)
-![Groq](https://img.shields.io/badge/Groq-API-green.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-![Deployment](https://img.shields.io/badge/Deployment-Streamlit%20Cloud-brightgreen.svg)
+**AI-powered resume intelligence — see exactly how your resume reads to an applicant tracking system before a recruiter ever does.**
 
-**AI-Powered Resume Optimization Tool | ATS Compatibility Check | Smart Career Assistant**
-
-[Live Demo](https://ats-resume-analyser-pro-chqbtqrmwxyv6fyvnbvnss.streamlit.app/) • [Report Bug](https://github.com/your-username/ats-analyzer/issues) • [Request Feature](https://github.com/your-username/ats-analyzer/issues)
-
-</div>
+🔗 **Live app:** [atsight.streamlit.app](https://atsight.streamlit.app/)
 
 ---
 
-## 📋 **Table of Contents**
-- [About The Project](#about-the-project)
-- [Key Features](#key-features)
-- [Tech Stack](#tech-stack)
-- [Demo](#demo)
-- [Getting Started](#getting-started)
-  - [Prerequisites](#prerequisites)
-  - [Installation](#installation)
-- [Usage Guide](#usage-guide)
-- [Features in Detail](#features-in-detail)
-- [Screenshots](#screenshots)
-- [Deployment](#deployment)
-- [Roadmap](#roadmap)
-- [Contributing](#contributing)
-- [License](#license)
-- [Contact](#contact)
-- [Acknowledgments](#acknowledgments)
+## What it does
+
+ATSight analyzes your resume against a job description and gives you an ATS-grade read on where you stand — powered by Groq's LLM API, with your history saved securely per account via Supabase.
+
+**Four analysis modes:**
+- **ATS Score** — overall compatibility score, category breakdown (keyword/experience/skills/education/formatting/readability), pass/fail prediction, matched vs. missing keywords
+- **Keyword Gap** — focused matched/missing keyword comparison with suggestions
+- **Detailed Report** — full narrative analysis: strengths, gaps, actionable recommendations
+- **Cover Letter** — AI-drafted, tailored to the specific job description
+
+Every result can be downloaded as a clean, formatted **PDF**.
 
 ---
 
-## 🎯 **About The Project**
+## Screenshots
 
-ATS Resume Analyzer PRO is an advanced AI-powered web application that helps job seekers optimize their resumes for Applicant Tracking Systems (ATS). In today's competitive job market, over 75% of resumes are rejected by ATS before reaching human eyes. This tool bridges that gap by providing instant, actionable feedback on how well your resume matches job descriptions.
+**Login**
+![Login page](Screenshots/Login%20page.png)
 
-**The Problem:**
-- Most resumes never get seen by recruiters due to ATS filters
-- Job seekers don't know which keywords to include
-- Manual resume optimization is time-consuming and subjective
+**Home**
+![Home page](Screenshots/Home%20page.png)
 
-**The Solution:**
-- AI-powered analysis using Groq's Llama 3.1 model
-- Instant ATS compatibility scoring
-- Detailed keyword gap analysis
-- Actionable improvement suggestions
+**Upload**
+![Upload page](Screenshots/Upload%20page.png)
 
----
+**Analysis Dashboard**
+![Analysis Dashboard](Screenshots/Analysis%20Dashboard.png)
 
-## ✨ **Key Features**
+**Detailed Report**
+![Detailed Report](Screenshots/Detailed%20Report.png)
 
-### 🔍 **Smart Analysis**
-- **Multi-Mode Analysis**: Choose from Detailed Analysis, ATS Score, or Cover Letter Generation
-- **Real-time Processing**: Get results in under 30 seconds
-- **Semantic Matching**: AI understands context, not just keywords
-
-### 📊 **ATS Compatibility**
-- **Percentage Score**: Instant match rating (0-100%)
-- **Keyword Analysis**: Identify matching and missing keywords
-- **Formatting Check**: Ensure ATS-friendly formatting
-
-### 💼 **Career Tools**
-- **Cover Letter Generator**: AI-crafted personalized cover letters
-- **Improvement Roadmap**: Step-by-step action plan
-- **History Tracking**: Save and compare multiple analyses
-
-### 📈 **Visual Analytics**
-- **Interactive Charts**: Gauge, radar, and bar charts for easy understanding
-- **Progress Tracking**: Monitor improvement over time
-- **Export Reports**: Download analysis as text files
-
-### 🛡️ **Professional Features**
-- **Multi-PDF Support**: Handles various PDF formats
-- **Dark Mode Compatible**: Works in both light and dark themes
-- **Session Management**: Saves analysis history during session
+**Cover Letter**
+![Cover Letter](Screenshots/Cover%20Letter.png)
 
 ---
 
-## 🛠️ **Tech Stack**
+## Key features
 
-### **Core Technologies**
-| Technology | Purpose |
-|------------|---------|
-| **Python 3.9+** | Primary programming language |
-| **Streamlit** | Web application framework |
-| **Groq AI** | Large Language Model API (Llama 3.1) |
-| **Plotly** | Interactive data visualization |
-| **Pandas** | Data manipulation and analysis |
-
-### **PDF Processing**
-| Library | Purpose |
-|---------|---------|
-| **PyPDF2** | Basic PDF text extraction |
-| **pdfplumber** | Advanced PDF parsing with table support |
-| **PyMuPDF (fitz)** | High-performance PDF processing |
-| **Pillow** | Image processing for scanned PDFs |
-
-### **Deployment & DevOps**
-| Tool | Purpose |
-|------|---------|
-| **Git** | Version control |
-| **GitHub** | Code repository |
-| **Streamlit Cloud** | Hosting and deployment |
-| **VS Code** | Development environment |
-
-### **Additional Libraries**
-- `python-dotenv` - Environment variable management
-- `openpyxl` - Excel file support
-- `json` - Data serialization
-- `datetime` - Timestamp management
+- 🔐 **Account-based** — register/log in, your analyses are private to you (Supabase Auth + Row Level Security)
+- 📊 **Persistent history** — every analysis is saved; revisit past runs anytime from the History tab
+- ⚡ **Async AI calls** — non-blocking Groq API integration (`AsyncGroq`), with automatic fallback handling if a model returns malformed output
+- 🧠 **Multiple models** — pick between GPT-OSS 20B (fast), GPT-OSS 120B (most accurate), or Qwen 3.6 27B (balanced)
+- 📄 **Robust PDF parsing** — cascading extraction (pdfplumber → PyPDF2 → PyMuPDF) so more resume formats actually work
+- 🛡️ **Admin dashboard** — for admin accounts only: total users, total analyses, API usage, recent signups
+- 🎨 **Editorial dark UI** — a custom design system, not default Streamlit styling
+- 📥 **PDF export** — properly formatted downloadable reports and cover letters, not raw text dumps
 
 ---
 
-## 🎥 **Demo**
+## Tech stack
 
-### **Live Application**
-🔗 **[https://ats-analyzer-pro.streamlit.app](https://your-app-name.streamlit.app)**
-
-### **Quick Walkthrough**
-
-<details>
-<summary>📹 Click to see demo steps</summary>
-
-1. **Enter API Key** - Paste your free Groq API key
-2. **Upload Resume** - Choose your PDF resume
-3. **Paste Job Description** - Copy from job posting
-4. **Choose Analysis Type** - Detailed, ATS Score, or Cover Letter
-5. **Get Results** - Receive instant AI analysis
-6. **Download Report** - Save analysis for future reference
-
-</details>
+| Layer | Technology |
+|---|---|
+| Frontend / App | Streamlit |
+| Auth & Database | Supabase (PostgreSQL + Auth, Row Level Security) |
+| AI | Groq API (`AsyncGroq`) — GPT-OSS 20B/120B, Qwen 3.6 27B |
+| PDF parsing | pdfplumber, PyPDF2, PyMuPDF |
+| PDF generation | fpdf2 |
+| Charts | Plotly |
+| Data | Pandas |
 
 ---
 
-## 🚀 **Getting Started**
+## Project structure
 
-### **Prerequisites**
+```
+ATSight/
+├── app.py            # Main entry point, navigation, page wiring
+├── auth.py           # Supabase Auth: login / register / logout / session state
+├── database.py       # History persistence + admin aggregate metrics
+├── analyzer.py        # Async Groq calls, PDF extraction, JSON schema validation
+├── styles.py           # Design system (CSS), chart theming, PDF report builder
+├── requirements.txt
+├── runtime.txt
+├── .streamlit/
+│   ├── config.toml     # Theme + toolbar config
+│   └── secrets.toml     # API keys (gitignored, not committed)
+└── .gitignore
+```
 
-Before you begin, ensure you have:
-- ✅ Python 3.9 or higher installed
-- ✅ Git installed
-- ✅ Groq API key (free from [console.groq.com](https://console.groq.com))
-- ✅ Basic understanding of command line
+---
 
-### **Installation**
+## Running it locally
 
-#### **Option 1: Quick Install (Recommended)**
+### 1. Clone and install
+```bash
+git clone https://github.com/aryan16-git/ATSight.git
+cd ATSight
+pip install -r requirements.txt
+```
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/your-username/ats-analyzer.git
-   cd ats-analyzer
+### 2. Set up Supabase
+- Create a free project at [supabase.com](https://supabase.com)
+- Run the schema (tables: `profiles`, `analyses`, `api_usage` with Row Level Security) in the SQL Editor
+- Grab your **Project URL**, **anon key**, and **service_role key** from Settings → API
+
+### 3. Get a Groq API key
+Free at [console.groq.com](https://console.groq.com)
+
+### 4. Configure secrets
+Create `.streamlit/secrets.toml`:
+```toml
+GROQ_API_KEY = "gsk_..."
+SUPABASE_URL = "https://xxxxx.supabase.co"
+SUPABASE_ANON_KEY = "eyJ..."
+SUPABASE_SERVICE_KEY = "eyJ..."
+```
+
+### 5. Run
+```bash
+streamlit run app.py
+```
+
+---
+
+## Deployment
+
+Deployed on **Streamlit Community Cloud**, auto-redeploying from the `main` branch. Secrets are configured separately in the Streamlit Cloud dashboard (Settings → Secrets) — never committed to the repo.
+
+---
+
+## Disclaimer
+
+AI analysis is for guidance only — always verify recommendations with human judgment before making resume decisions.
+
+---
+
+## Author
+
+**Aryan Gupta**
+[GitHub](https://github.com/aryan16-git) · [LinkedIn](https://linkedin.com/in/aryan-gupta-d16m08)
